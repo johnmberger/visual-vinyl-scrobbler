@@ -1,15 +1,14 @@
 # Visual Vinyl Scrobbler
 
-A Next.js app that allows you to scrobble your vinyl records to Last.fm by taking a photo of the album cover with your iPad camera.
+A Next.js app that allows you to scrobble your vinyl records to Last.fm by taking a photo of the album cover with your device's camera (I'm using an iPad next to my turntable).
 
 ## Features
 
-- 📸 **Camera-based album recognition**: Point your iPad camera at an album cover to identify and scrobble it
+- 📸 **Camera-based album recognition**: Point your camera at an album cover to identify and scrobble it
 - 🎵 **Discogs integration**: Automatically syncs with your Discogs collection
 - 🎧 **Last.fm scrobbling**: Scrobbles identified albums to your Last.fm account
 - 📚 **Library view**: Browse your entire Discogs collection and manually scrobble albums
 - 💾 **Cover database**: Build a local database of all your album covers from Discogs for faster matching
-- 🎨 **iPad-optimized UI**: Designed to work seamlessly on iPad browsers
 
 ## Setup
 
@@ -217,7 +216,6 @@ The database stores all your album covers from Discogs for faster matching:
 - ✅ **Tracklist support** - scrobble individual tracks from selected album sides
 - ✅ **Last.fm verification** - checks if albums exist before scrobbling
 - ✅ **Timestamp adjustment** - adjust when tracks were played
-- ✅ **iPad-optimized UI** - designed for tablet use
 
 ## To-Do
 
