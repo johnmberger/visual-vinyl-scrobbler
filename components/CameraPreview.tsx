@@ -1,11 +1,13 @@
 "use client";
 
 interface CameraPreviewProps {
-  videoRef: React.RefObject<HTMLVideoElement>;
-  canvasRef: React.RefObject<HTMLCanvasElement>;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
   isCapturing: boolean;
   isProcessing: boolean;
   cameraStatus: string;
+  matchConfidence?: number | null;
+  consecutiveMatches?: number;
 }
 
 export default function CameraPreview({
@@ -14,7 +16,13 @@ export default function CameraPreview({
   isCapturing,
   isProcessing,
   cameraStatus,
+  matchConfidence,
+  consecutiveMatches = 0,
 }: CameraPreviewProps) {
+  const isReadyToCapture =
+    matchConfidence !== null &&
+    matchConfidence > 0.75 &&
+    consecutiveMatches >= 1;
   return (
     <div className="relative bg-black rounded-lg overflow-hidden aspect-video mb-4 border-2 border-gray-700">
       {/* Always render video element (hidden when not capturing) so ref is available */}
@@ -28,19 +36,12 @@ export default function CameraPreview({
         }`}
         style={{ transform: "scaleX(-1)" }} // Mirror the video for better UX
         onLoadedMetadata={() => {
-          console.log("Video metadata loaded");
           // Video is ready
           if (videoRef.current) {
             videoRef.current.play().catch((err) => {
               console.warn("Play error in onLoadedMetadata:", err);
             });
           }
-        }}
-        onCanPlay={() => {
-          console.log("Video can play");
-        }}
-        onPlay={() => {
-          console.log("Video started playing");
         }}
         onError={(e) => {
           console.error("Video error:", e);
@@ -95,9 +96,40 @@ export default function CameraPreview({
 
             {/* Center square guide - position album here */}
             {/* Square guide for square album covers */}
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[75%] aspect-square max-w-lg border-4 border-white/70 rounded-lg shadow-lg">
+            <div
+              className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[75%] aspect-square max-w-lg border-4 rounded-lg shadow-lg transition-all duration-300 ${
+                isReadyToCapture
+                  ? "border-green-500 shadow-green-500/50"
+                  : "border-white/70"
+              }`}
+            >
               {/* Inner guide for precise positioning */}
-              <div className="absolute inset-3 border-2 border-white/50 rounded"></div>
+              <div
+                className={`absolute inset-3 border-2 rounded transition-all duration-300 ${
+                  isReadyToCapture ? "border-green-400/70" : "border-white/50"
+                }`}
+              ></div>
+              {/* Match indicator */}
+              {isReadyToCapture && (
+                <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  <span className="text-sm font-semibold">
+                    Ready! ({Math.round((matchConfidence || 0) * 100)}% match)
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Instruction text */}

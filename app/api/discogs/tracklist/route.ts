@@ -24,16 +24,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Release not found" }, { status: 404 });
     }
 
-    console.log("Full release data:", JSON.stringify(release, null, 2));
-    console.log("Tracklist from release:", release.tracklist);
-    console.log("Tracklist type:", typeof release.tracklist);
-    console.log("Tracklist length:", release.tracklist?.length);
-
     const tracklist = release.tracklist || [];
-    console.log("Parsed tracklist array:", tracklist);
-
     const sides = parseTracklistSides(tracklist);
-    console.log("Parsed sides:", sides);
 
     // Handle both collection format (basic_information) and full release format
     const title =

@@ -51,9 +51,14 @@ export default function CameraView() {
     album: string;
     trackCount?: number;
   } | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(true);
+  const [isMatching, setIsMatching] = useState(false);
+  const [matchConfidence, setMatchConfidence] = useState<number | null>(null);
+  const [consecutiveMatches, setConsecutiveMatches] = useState(0);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const matchingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check camera availability on mount
   useEffect(() => {
@@ -107,7 +112,6 @@ export default function CameraView() {
         stream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (envError) {
         // Fallback to any available camera
-        console.log("Environment camera not available, trying default camera");
         constraints = {
           video: {
             facingMode: "environment",
@@ -122,11 +126,6 @@ export default function CameraView() {
         throw new Error("Failed to get camera stream");
       }
 
-      console.log(
-        "Stream obtained, active tracks:",
-        stream.getVideoTracks().length
-      );
-
       // Video element should always be available now (always rendered)
       if (!videoRef.current) {
         console.error("Video element not available!");
@@ -134,17 +133,14 @@ export default function CameraView() {
       }
 
       const video = videoRef.current;
-      console.log("Video element found, setting stream...");
 
       // Set the stream - this should trigger autoplay
       video.srcObject = stream;
       streamRef.current = stream;
-      console.log("Stream set on video element");
 
       // Mark as capturing - video element is already rendered, just hidden
       setIsCapturing(true);
       setCameraStatus("");
-      console.log("State updated - camera should be visible now");
 
       // Try to play
       video.play().catch((playError) => {
@@ -188,6 +184,12 @@ export default function CameraView() {
   }, []);
 
   const stopCamera = useCallback(() => {
+    // Clear matching interval
+    if (matchingIntervalRef.current) {
+      clearInterval(matchingIntervalRef.current);
+      matchingIntervalRef.current = null;
+    }
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -196,6 +198,9 @@ export default function CameraView() {
       videoRef.current.srcObject = null;
     }
     setIsCapturing(false);
+    setIsMatching(false);
+    setMatchConfidence(null);
+    setConsecutiveMatches(0);
   }, []);
 
   const captureAndProcess = useCallback(async () => {
@@ -267,10 +272,7 @@ export default function CameraView() {
           }
         }
       } catch (err) {
-        console.log(
-          "Image matching failed or not available, falling back to OCR:",
-          err
-        );
+        // Image matching failed or not available, falling back to OCR
       }
 
       // Fall back to OCR if image matching didn't work
@@ -349,39 +351,17 @@ export default function CameraView() {
       setSelectedSides(new Set());
       if (matchData.album?.basic_information?.id) {
         try {
-          console.log(
-            "Fetching tracklist for release:",
-            matchData.album.basic_information.id
-          );
           const tracklistResponse = await fetch(
             `/api/discogs/tracklist?releaseId=${matchData.album.basic_information.id}`
           );
           if (tracklistResponse.ok) {
             const tracklistData = await tracklistResponse.json();
-            console.log("Tracklist API response:", tracklistData);
-            console.log("Debug info:", tracklistData.debug);
 
             if (tracklistData.sides && tracklistData.sides.length > 0) {
-              console.log(
-                `Found ${tracklistData.sides.length} sides:`,
-                tracklistData.sides.map(
-                  (s: any) => `${s.label} (${s.tracks.length} tracks)`
-                )
-              );
               setTracklistSides(tracklistData.sides);
               // Select all sides by default
               setSelectedSides(
                 new Set(tracklistData.sides.map((s: any) => s.side))
-              );
-            } else {
-              console.warn(
-                "No sides found in tracklist data. Full response:",
-                JSON.stringify(tracklistData, null, 2)
-              );
-              console.warn("Tracklist array:", tracklistData.tracklist);
-              console.warn(
-                "Tracklist length:",
-                tracklistData.tracklist?.length
               );
             }
           } else {
@@ -396,11 +376,6 @@ export default function CameraView() {
           console.error("Error fetching tracklist:", err);
           // Continue anyway - tracklist is optional
         }
-      } else {
-        console.warn(
-          "No release ID available for tracklist fetch:",
-          matchData.album
-        );
       }
 
       // Show confirmation dialog instead of scrobbling immediately
@@ -428,6 +403,130 @@ export default function CameraView() {
     }
   }, [stopCamera]);
 
+  // Continuous matching for auto-capture
+  useEffect(() => {
+    // Only run if auto-capture is enabled, camera is capturing, and not already processing
+    if (
+      !autoCaptureEnabled ||
+      !isCapturing ||
+      isProcessing ||
+      pendingScrobble !== null ||
+      !videoRef.current ||
+      !canvasRef.current
+    ) {
+      // Clear interval if conditions not met
+      if (matchingIntervalRef.current) {
+        clearInterval(matchingIntervalRef.current);
+        matchingIntervalRef.current = null;
+      }
+      setMatchConfidence(null);
+      setConsecutiveMatches(0);
+      return;
+    }
+
+    // Sample frames every 1.5 seconds for matching
+    matchingIntervalRef.current = setInterval(async () => {
+      // Skip if already matching or processing
+      if (isMatching || isProcessing || pendingScrobble !== null) {
+        return;
+      }
+
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+
+      if (!video || !canvas || video.readyState !== video.HAVE_ENOUGH_DATA) {
+        return;
+      }
+
+      setIsMatching(true);
+
+      try {
+        const context = canvas.getContext("2d");
+        if (!context) {
+          setIsMatching(false);
+          return;
+        }
+
+        // Capture current frame
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0);
+        const imageData = canvas.toDataURL("image/jpeg", 0.8);
+
+        // Try image matching
+        try {
+          const imageMatchResponse = await fetch("/api/match-image", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ image: imageData }),
+          });
+
+          if (imageMatchResponse.ok) {
+            const imageMatch = await imageMatchResponse.json();
+            if (imageMatch.success && imageMatch.match.similarity > 0.6) {
+              const similarity = imageMatch.match.similarity;
+              setMatchConfidence(similarity);
+
+              // If high confidence (>0.75), increment consecutive matches
+              if (similarity > 0.75) {
+                const newConsecutive = consecutiveMatches + 1;
+                setConsecutiveMatches(newConsecutive);
+
+                // Auto-capture after 2 consecutive high-confidence matches
+                if (newConsecutive >= 2) {
+                  // Clear interval before capturing
+                  if (matchingIntervalRef.current) {
+                    clearInterval(matchingIntervalRef.current);
+                    matchingIntervalRef.current = null;
+                  }
+                  // Trigger capture
+                  captureAndProcess();
+                  return;
+                }
+              } else {
+                // Reset consecutive matches if confidence drops
+                setConsecutiveMatches(0);
+              }
+            } else {
+              // No good match found
+              setMatchConfidence(null);
+              setConsecutiveMatches(0);
+            }
+          } else {
+            setMatchConfidence(null);
+            setConsecutiveMatches(0);
+          }
+        } catch (err) {
+          // Image matching failed (maybe no hashes in database)
+          setMatchConfidence(null);
+          setConsecutiveMatches(0);
+        }
+      } catch (err) {
+        console.error("Error in continuous matching:", err);
+      } finally {
+        setIsMatching(false);
+      }
+    }, 1500); // Sample every 1.5 seconds
+
+    // Cleanup on unmount or when conditions change
+    return () => {
+      if (matchingIntervalRef.current) {
+        clearInterval(matchingIntervalRef.current);
+        matchingIntervalRef.current = null;
+      }
+    };
+  }, [
+    autoCaptureEnabled,
+    isCapturing,
+    isProcessing,
+    pendingScrobble,
+    isMatching,
+    consecutiveMatches,
+    captureAndProcess,
+  ]);
+
   return (
     <div className="space-y-4">
       <div className="bg-gray-800 rounded-lg p-4">
@@ -440,6 +539,8 @@ export default function CameraView() {
           isCapturing={isCapturing}
           isProcessing={isProcessing && pendingScrobble === null}
           cameraStatus={cameraStatus}
+          matchConfidence={matchConfidence}
+          consecutiveMatches={consecutiveMatches}
         />
 
         {/* Controls */}
@@ -451,21 +552,64 @@ export default function CameraView() {
             Start Camera
           </button>
         ) : (
-          <div className="flex gap-4">
-            <button
-              onClick={captureAndProcess}
-              disabled={isProcessing}
-              className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold text-lg transition-colors"
-            >
-              {isProcessing ? "Processing..." : "Capture Album"}
-            </button>
-            <button
-              onClick={stopCamera}
-              disabled={isProcessing}
-              className="px-6 py-4 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors"
-            >
-              Stop
-            </button>
+          <div className="space-y-3">
+            {/* Auto-capture toggle */}
+            <div className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg border border-gray-600">
+              <div className="flex items-center gap-2">
+                <svg
+                  className="w-5 h-5 text-gray-300"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <span className="text-sm font-medium text-gray-300">
+                  Auto-capture
+                </span>
+                {matchConfidence !== null && matchConfidence > 0.75 && (
+                  <span className="text-xs text-green-400">
+                    ({Math.round(matchConfidence * 100)}% match)
+                  </span>
+                )}
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoCaptureEnabled}
+                  onChange={(e) => {
+                    setAutoCaptureEnabled(e.target.checked);
+                    setMatchConfidence(null);
+                    setConsecutiveMatches(0);
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-4">
+              <button
+                onClick={captureAndProcess}
+                disabled={isProcessing || autoCaptureEnabled}
+                className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold text-lg transition-colors"
+              >
+                {isProcessing ? "Processing..." : "Capture Album"}
+              </button>
+              <button
+                onClick={stopCamera}
+                disabled={isProcessing}
+                className="px-6 py-4 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors"
+              >
+                Stop
+              </button>
+            </div>
           </div>
         )}
 
@@ -583,6 +727,8 @@ export default function CameraView() {
             onCancel={() => {
               setPendingScrobble(null);
               setError(null);
+              setMatchConfidence(null);
+              setConsecutiveMatches(0);
               // Camera is already stopped, user can restart if needed
             }}
             isScrobbling={isScrobbling}

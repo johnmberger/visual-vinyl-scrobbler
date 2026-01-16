@@ -108,13 +108,9 @@ export async function buildDatabase(
     // Lazy import to avoid loading WASM files unless actually needed
     const { generateHashFromUrl } = await import("./imageMatching");
 
-    console.log("Generating image hashes for matching...");
-    console.log(
-      "Note: Some images may fail due to Discogs rate limiting (403 errors)"
-    );
-    console.log(
-      "This is normal - the database will still be built with available hashes"
-    );
+    // Generating image hashes for matching
+    // Note: Some images may fail due to Discogs rate limiting (403 errors)
+    // This is normal - the database will still be built with available hashes
 
     for (let i = 0; i < albums.length; i++) {
       const album = albums[i];
@@ -129,11 +125,6 @@ export async function buildDatabase(
         if (album.coverImageUrl) {
           try {
             album.imageHash = await generateHashFromUrl(album.coverImageUrl);
-            console.log(
-              `Generated hash for ${album.artist} - ${album.album} (${i + 1}/${
-                albums.length
-              })`
-            );
           } catch (error: any) {
             console.warn(
               `Failed to hash cover image for ${album.artist} - ${album.album}:`,
@@ -143,9 +134,6 @@ export async function buildDatabase(
             if (album.thumbUrl) {
               try {
                 album.thumbHash = await generateHashFromUrl(album.thumbUrl);
-                console.log(
-                  `Used thumbnail hash for ${album.artist} - ${album.album}`
-                );
               } catch (thumbError: any) {
                 console.warn(
                   `Thumbnail hash also failed:`,
@@ -182,7 +170,6 @@ export async function buildDatabase(
         saveDatabase(tempDatabase);
       }
     }
-    console.log("Finished generating image hashes");
   }
 
   const database: CoverDatabase = {

@@ -337,15 +337,8 @@ export async function scrobbleTrack(track: LastFmTrack): Promise<boolean> {
     const ignored = attrs.ignored || "0";
     const scrobbleArray = scrobbles?.scrobble;
 
-    // Log full response for debugging
-    console.log(
-      "Last.fm scrobble response:",
-      JSON.stringify(response.data, null, 2)
-    );
-
     // Check if scrobble was accepted
     if (accepted === "1" || accepted === 1) {
-      console.log("Scrobble accepted by Last.fm");
       return true;
     }
 
@@ -373,7 +366,6 @@ export async function scrobbleTrack(track: LastFmTrack): Promise<boolean> {
         ignoreStr.includes("recently")
       ) {
         // Duplicate/recent scrobbles are usually fine - return true
-        console.log("Scrobble was duplicate/recent - treating as success");
         return true;
       }
 
@@ -468,17 +460,6 @@ export async function scrobbleAlbum(
 ): Promise<boolean> {
   const scrobbleTimestamp = timestamp || Math.floor(Date.now() / 1000);
 
-  console.log("scrobbleAlbum called with:", {
-    artist,
-    album,
-    timestamp: scrobbleTimestamp,
-    hasDiscogsRelease: !!discogsRelease,
-    hasTracklist: !!discogsRelease?.tracklist,
-    tracklistLength: discogsRelease?.tracklist?.length || 0,
-    selectedSides,
-    selectedSidesLength: selectedSides?.length || 0,
-  });
-
   // If we have selected sides and a Discogs release with tracklist, scrobble those tracks
   if (
     selectedSides &&
@@ -486,7 +467,6 @@ export async function scrobbleAlbum(
     discogsRelease?.tracklist &&
     discogsRelease.tracklist.length > 0
   ) {
-    console.log("Using Discogs tracklist with selected sides");
     // Parse tracklist to get tracks from selected sides
     const { parseTracklistSides } = await import("./discogs");
     const sides = parseTracklistSides(discogsRelease.tracklist);
@@ -551,14 +531,8 @@ export async function scrobbleAlbum(
       }
 
       if (tracksToScrobble.length > 0) {
-        console.log(
-          `Scrobbling ${tracksToScrobble.length} tracks from selected sides`
-        );
         const result = await scrobbleTracks(tracksToScrobble);
         if (result.success > 0) {
-          console.log(
-            `Successfully scrobbled ${result.success} tracks, ${result.failed} failed`
-          );
           if (result.errors.length > 0) {
             console.warn("Scrobble errors:", result.errors);
           }
@@ -610,14 +584,8 @@ export async function scrobbleAlbum(
     }
 
     if (tracksToScrobble.length > 0) {
-      console.log(
-        `Using Last.fm tracklist: scrobbling ${tracksToScrobble.length} tracks from "${lastFmAlbum.name}"`
-      );
       const result = await scrobbleTracks(tracksToScrobble);
       if (result.success > 0) {
-        console.log(
-          `Successfully scrobbled ${result.success} tracks, ${result.failed} failed`
-        );
         if (result.errors.length > 0) {
           console.warn("Scrobble errors:", result.errors);
         }
@@ -631,9 +599,6 @@ export async function scrobbleAlbum(
 
   if (verifiedTrack) {
     // Use verified track name from Last.fm
-    console.log(
-      `Using verified Last.fm track: "${verifiedTrack.name}" by "${verifiedTrack.artist}"`
-    );
     return await scrobbleTrack({
       artist: verifiedTrack.artist,
       track: verifiedTrack.name,

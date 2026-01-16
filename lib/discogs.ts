@@ -191,20 +191,13 @@ export interface TrackSide {
 }
 
 export function parseTracklistSides(tracklist: DiscogsTrack[]): TrackSide[] {
-  console.log("parseTracklistSides called with:", tracklist);
-
   if (!tracklist || tracklist.length === 0) {
-    console.log("No tracklist provided or empty");
     return [];
   }
 
   // Handle case where tracklist might be an object with a tracklist property
   let tracks: DiscogsTrack[] = tracklist;
   if (Array.isArray(tracklist) === false) {
-    console.warn(
-      "Tracklist is not an array, attempting to extract:",
-      tracklist
-    );
     // Sometimes Discogs returns { tracklist: [...] } structure
     if (
       tracklist &&
@@ -217,24 +210,13 @@ export function parseTracklistSides(tracklist: DiscogsTrack[]): TrackSide[] {
     }
   }
 
-  console.log("Processing tracks:", tracks.length);
-
   const sidesMap = new Map<string, DiscogsTrack[]>();
 
   for (const track of tracks) {
     if (!track) continue;
 
-    // Log track structure for debugging
-    if (tracks.indexOf(track) < 3) {
-      console.log("Sample track:", JSON.stringify(track, null, 2));
-    }
-
     // Skip non-track items (headings, index tracks, etc.)
     if (track.type && track.type !== "track") {
-      console.log(
-        `Skipping track with type "${track.type}":`,
-        track.title || track.position
-      );
       continue;
     }
 
@@ -244,7 +226,6 @@ export function parseTracklistSides(tracklist: DiscogsTrack[]): TrackSide[] {
     let sideKey = "";
 
     if (!position) {
-      console.warn("Track missing position:", track);
       // If no position, assign to default side
       sideKey = "1";
     } else {
@@ -269,11 +250,6 @@ export function parseTracklistSides(tracklist: DiscogsTrack[]): TrackSide[] {
     }
     sidesMap.get(sideKey)!.push(track);
   }
-
-  console.log(
-    "Sides map:",
-    Array.from(sidesMap.entries()).map(([k, v]) => [k, v.length])
-  );
 
   // Convert to array and sort
   const sides: TrackSide[] = Array.from(sidesMap.entries()).map(
