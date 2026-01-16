@@ -13,7 +13,7 @@ export default function Home() {
     <main className="min-h-screen p-4">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-4xl font-bold mb-6 text-center">
-          Discogs Scrobbler
+          Visual Vinyl Scrobbler
         </h1>
 
         <ConfigStatus />

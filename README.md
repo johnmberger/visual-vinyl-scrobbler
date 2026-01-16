@@ -1,4 +1,4 @@
-# Discogs Scrobbler
+# Visual Vinyl Scrobbler
 
 A Next.js app that allows you to scrobble your vinyl records to Last.fm by taking a photo of the album cover with your iPad camera.
 

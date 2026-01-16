@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Discogs Scrobbler",
+  title: "Visual Vinyl Scrobbler",
   description: "Scrobble your vinyl records to Last.fm",
 };
 
