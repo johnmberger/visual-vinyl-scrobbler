@@ -209,14 +209,6 @@ The database stores all your album covers from Discogs for faster matching:
 
 **Note**: Rebuild the database periodically if you add new albums to your Discogs collection.
 
-## Features
-
-- ✅ **Perceptual hashing** for visual album cover recognition
-- ✅ **Auto-capture** mode for hands-free scrobbling
-- ✅ **Tracklist support** - scrobble individual tracks from selected album sides
-- ✅ **Last.fm verification** - checks if albums exist before scrobbling
-- ✅ **Timestamp adjustment** - adjust when tracks were played
-
 ## To-Do
 
 Future improvements I'd like to implement:
