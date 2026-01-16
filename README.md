@@ -120,90 +120,112 @@ See [HTTPS_SETUP.md](./HTTPS_SETUP.md) for detailed setup instructions and troub
 
 ## How It Works
 
-1. **Camera View**:
+### Camera View
 
-   - Tap "Start Camera" to activate your device's camera
-   - Point the camera at an album cover
-   - Tap "Capture & Scrobble" to process the image
-   - The app uses Google Cloud Vision API to extract text from the album cover
-   - It then searches your Discogs collection for a matching album
-   - If found, it scrobbles the album to Last.fm
+1. Tap "Start Camera" to activate your device's camera
+2. Point the camera at an album cover
+3. The app will automatically recognize the album (with auto-capture enabled) or tap "Capture Album" manually
+4. The app uses **perceptual hashing** to match the cover visually (if database has hashes), or falls back to OCR text extraction
+5. Once identified, you'll see a confirmation modal where you can:
+   - Select which sides of the album to scrobble
+   - Adjust the scrobble timestamp
+   - Review tracklist information
+6. Confirm to scrobble all selected tracks to Last.fm
 
-2. **Library View**:
+### Library View
 
-   - Browse all albums in your Discogs collection
-   - Search by artist or album name
-   - Tap any album to scrobble it manually
+- Browse all albums in your Discogs collection
+- Search by artist or album name
+- Tap any album to scrobble it manually
 
-3. **Database View**:
-   - Build a local database of all album covers from your Discogs collection
-   - View statistics about your database
-   - The database stores cover image URLs, artist names, album titles, and metadata
-   - Useful for faster album matching and future image recognition improvements
+### Database View
+
+- Build a local database of all album covers from your Discogs collection
+- View statistics about your database
+- Generate perceptual hashes for visual image matching
 
 ## Technical Details
 
-- **Next.js 15**: Latest version with App Router
-- **TypeScript**: Full type safety
-- **Tailwind CSS**: Modern, responsive styling
-- **Google Cloud Vision API**: OCR and text extraction from album covers
-- **Discogs API**: Collection fetching and album search
-- **Last.fm API**: Scrobbling functionality
+- **Next.js 15**: App Router with TypeScript
+- **Perceptual Hashing**: `imghash` library (Block Mean Value algorithm)
+- **Image Processing**: `sharp` for image manipulation
+- **Google Cloud Vision API**: OCR fallback for text extraction
+- **Discogs API**: Collection fetching, release details, and tracklists
+- **Last.fm API**: Track/album search, verification, and scrobbling
 
-## Limitations
+## Perceptual Hashing
 
-- The image recognition relies on text extraction (OCR), so album covers with clear text work best
-- Album matching depends on the accuracy of OCR and your Discogs collection data
-- Last.fm scrobbling currently scrobbles the album as a single track (for a complete implementation, you'd want to fetch the tracklist and scrobble each track)
+The app uses **perceptual hashing** (pHash) for visual album cover recognition. This allows the app to match album covers even when text is unclear or missing.
 
-## Database Feature
+### How It Works
 
-The app includes a database feature that stores all your album covers from Discogs:
+1. **Hash Generation**: When building the database with hashes enabled, the app:
 
-- **Location**: Stored in `data/covers-database.json` (created automatically)
-- **Contents**: Album metadata, cover image URLs, artist names, titles, years, labels, formats, and **perceptual image hashes**
-- **Usage**: Access the "Database" tab to build and view your cover database
+   - Downloads cover images from Discogs
+   - Resizes them to 8×8 pixels and converts to grayscale
+   - Generates a 64-bit hash (visual fingerprint) using the Block Mean Value algorithm
+   - Stores the hash in the database
+
+2. **Matching Process**:
+
+   - When you capture an album cover, the app generates a hash from the photo
+   - Compares it with all hashes in your database using Hamming distance
+   - Finds matches within a similarity threshold (default: 15 bits difference)
+   - Returns the best match if similarity > 60%
+
+3. **Advantages**:
+   - Works without clear text on the cover
+   - Handles variations in lighting, angle, and image quality
+   - Fast matching (typically <100ms for 1000 albums)
+   - Falls back to OCR if no good visual match is found
+
+### Similarity Scores
+
+- **High confidence** (>80%): Very likely correct match
+- **Medium confidence** (60-80%): Probably correct, verify if unsure
+- **Low confidence** (<60%): May not be accurate
+
+For more technical details, see [IMAGE_MATCHING.md](./IMAGE_MATCHING.md).
+
+## Building the Database
+
+The database stores all your album covers from Discogs for faster matching:
+
+- **Location**: `data/covers-database.json` (created automatically, gitignored)
+- **Contents**: Album metadata, cover image URLs, artist names, titles, years, labels, formats, and perceptual image hashes
 - **Benefits**:
-  - Faster album lookups (searches local database first before hitting Discogs API)
-  - **Visual image matching** - match album covers by visual similarity, not just text
+  - Faster album lookups (searches local database first)
+  - Visual image matching using perceptual hashes
   - Offline access to your collection metadata
   - Reduced API calls to Discogs
 
-To build the database:
+### To Build the Database
 
 1. Go to the "Database" tab in the app
-2. (Optional) Check "Generate image hashes for visual matching" to enable image-based recognition
+2. Check "Generate image hashes for visual matching" (recommended for best results)
 3. Click "Build Database from Discogs"
 4. Wait for it to fetch all albums from your collection
-   - Without hashes: may take a few minutes for large collections
-   - With hashes: will take longer as it downloads and processes cover images
+   - Without hashes: a few minutes for large collections
+   - With hashes: longer as it downloads and processes cover images
 
-**Note**: The `data/` directory is gitignored and won't be committed to version control.
+**Note**: Rebuild the database periodically if you add new albums to your Discogs collection.
 
-### Image Matching
+## Features
 
-When you enable image hash generation, the app can match album covers visually:
+- ✅ **Perceptual hashing** for visual album cover recognition
+- ✅ **Auto-capture** mode for hands-free scrobbling
+- ✅ **Tracklist support** - scrobble individual tracks from selected album sides
+- ✅ **Last.fm verification** - checks if albums exist before scrobbling
+- ✅ **Timestamp adjustment** - adjust when tracks were played
+- ✅ **iPad-optimized UI** - designed for tablet use
 
-- Uses **perceptual hashing** (pHash) to create visual fingerprints of album covers
-- Compares captured photos with database hashes using Hamming distance
-- Works even with different lighting, angles, or slight image variations
-- Falls back to OCR text recognition if image matching doesn't find a good match
+## To-Do
 
-The matching process:
+Future improvements I'd like to implement:
 
-1. Camera captures album cover photo
-2. App tries **image matching first** (if database has hashes)
-3. If no good match found, falls back to **OCR text extraction**
-4. Searches database/Discogs for matching album
-5. Scrobbles to Last.fm
-
-## Future Improvements
-
-- Visual image matching using the cover database (compare captured image with stored covers)
-- Automatic tracklist fetching and individual track scrobbling
-- Better error handling and user feedback
-- Support for multiple users
-- Download and cache cover images locally for offline use
+- **OAuth integration**: Switch from hard-coded API credentials to OAuth flows for Last.fm and Discogs, allowing users to authenticate securely without exposing API keys
+- **Hash storage optimization**: Optimize how perceptual hashes are stored and indexed for faster matching, potentially using a database or more efficient data structures
+- **Multi-user support**: Update the app architecture to support multiple users, with user-specific collections, databases, and authentication
 
 ## License
 
