@@ -8,6 +8,7 @@ interface CameraPreviewProps {
   cameraStatus: string;
   matchConfidence?: number | null;
   consecutiveMatches?: number;
+  isCapturingForGemini?: boolean;
 }
 
 export default function CameraPreview({
@@ -18,14 +19,18 @@ export default function CameraPreview({
   cameraStatus,
   matchConfidence,
   consecutiveMatches = 0,
+  isCapturingForGemini = false,
 }: CameraPreviewProps) {
   const isReadyToCapture =
     matchConfidence !== null &&
-    matchConfidence >= 0.85 && // Very high confidence required (85%+) to prevent false captures
+    (matchConfidence ?? 0) >= 0.7 && // 70%+ confidence required for auto-capture
     consecutiveMatches >= 1;
   
-  // Show green outline for any hash match (even if not ready for auto-capture)
-  const hasMatch = matchConfidence !== null && matchConfidence >= 0.7;
+  // Show green outline only when:
+  // 1. A match that meets the threshold is detected (>= 70%)
+  // 2. When capturing for Gemini (at the end of the timer)
+  const hasMatch = (matchConfidence ?? 0) >= 0.7;
+  const shouldShowGreen = hasMatch || isCapturingForGemini;
   return (
     <div className="relative bg-black rounded-lg overflow-hidden aspect-video mb-4 border-2 border-gray-700">
       {/* Always render video element (hidden when not capturing) so ref is available */}
@@ -91,69 +96,68 @@ export default function CameraPreview({
         <>
           {/* Overlay guides to help center album cover */}
           <div className="absolute inset-0 pointer-events-none">
-            {/* Corner guides */}
-            <div className="absolute top-4 left-4 w-12 h-12 border-t-2 border-l-2 border-white/50 rounded-tl-lg"></div>
-            <div className="absolute top-4 right-4 w-12 h-12 border-t-2 border-r-2 border-white/50 rounded-tr-lg"></div>
-            <div className="absolute bottom-4 left-4 w-12 h-12 border-b-2 border-l-2 border-white/50 rounded-bl-lg"></div>
-            <div className="absolute bottom-4 right-4 w-12 h-12 border-b-2 border-r-2 border-white/50 rounded-br-lg"></div>
-
-            {/* Center square guide - position album here */}
-            {/* Square guide for square album covers */}
+            {/* Center square guide - position album here for optimal crop */}
             <div
               className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[75%] aspect-square max-w-lg border-4 rounded-lg shadow-lg transition-all duration-300 ${
-                isReadyToCapture
+                shouldShowGreen
                   ? "border-green-500 shadow-green-500/50"
-                  : hasMatch
-                  ? "border-green-400/60 shadow-green-400/30"
                   : "border-white/70"
               }`}
             >
-              {/* Inner guide for precise positioning */}
+              {/* Top horizontal guide line - extends full width */}
               <div
-                className={`absolute inset-3 border-2 rounded transition-all duration-300 ${
-                  isReadyToCapture
-                    ? "border-green-400/70"
-                    : hasMatch
-                    ? "border-green-300/50"
-                    : "border-white/50"
+                className={`absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-0.5 w-screen h-0.5 transition-all duration-300 ${
+                  shouldShowGreen
+                    ? "bg-green-500"
+                    : "bg-white/70"
                 }`}
-              ></div>
-              {/* Match indicator */}
-              {isReadyToCapture && (
-                <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M5 13l4 4L19 7"
-                    />
-                  </svg>
-                  <span className="text-sm font-semibold">
-                    Ready! ({Math.round((matchConfidence || 0) * 100)}% match)
+              />
+              {/* Bottom horizontal guide line - extends full width */}
+              <div
+                className={`absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-0.5 w-screen h-0.5 transition-all duration-300 ${
+                  shouldShowGreen
+                    ? "bg-green-500"
+                    : "bg-white/70"
+                }`}
+              />
+              {/* Match indicator - show as early as possible */}
+              {matchConfidence !== null && (
+                <div className={`absolute -top-12 left-1/2 transform -translate-x-1/2 text-white px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2 ${
+                  isReadyToCapture 
+                    ? "bg-green-600 animate-pulse px-4 py-2" 
+                    : "bg-green-500/80"
+                }`}>
+                  {isReadyToCapture && (
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                  )}
+                  <span className={`font-medium ${isReadyToCapture ? "text-sm font-semibold" : "text-xs"}`}>
+                    {isReadyToCapture 
+                      ? `Ready! (${Math.round((matchConfidence ?? 0) * 100)}% match)`
+                      : `${Math.round((matchConfidence ?? 0) * 100)}% match`
+                    }
                   </span>
                 </div>
               )}
-              {/* Show match confidence even if not ready for auto-capture */}
-              {hasMatch && !isReadyToCapture && matchConfidence !== null && (
+              {/* Show fallback status when capturing for Gemini */}
+              {isCapturingForGemini && matchConfidence === null && (
                 <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-green-500/80 text-white px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2">
                   <span className="text-xs font-medium">
-                    {Math.round(matchConfidence * 100)}% match
+                    Sending to AI...
                   </span>
                 </div>
               )}
-            </div>
-
-            {/* Instruction text */}
-            <div className="absolute top-16 left-1/2 transform -translate-x-1/2 bg-black/80 px-4 py-2 rounded-lg backdrop-blur-sm z-10">
-              <p className="text-white text-sm font-semibold text-center">
-                Position album cover in the center area
-              </p>
             </div>
 
             {/* Processing overlay - stays until modal appears */}

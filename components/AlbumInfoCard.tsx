@@ -35,7 +35,7 @@ export default function AlbumInfoCard({
               </div>
             )}
             <Image
-              src={coverImage || thumb}
+              src={(coverImage || thumb) || ""}
               alt={`${artist} - ${albumTitle}`}
               fill
               sizes="(max-width: 1024px) 100vw, 320px"

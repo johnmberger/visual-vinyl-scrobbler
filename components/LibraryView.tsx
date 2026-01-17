@@ -6,13 +6,14 @@ import { DiscogsRelease } from "@/lib/discogs";
 import ScrobbleConfirmationModal from "./ScrobbleConfirmationModal";
 import ScrobbleSuccessToast from "./ScrobbleSuccessToast";
 import { LibraryGridSkeleton, AlbumCardSkeleton } from "./SkeletonLoader";
+import { filterAndSortAlbums, type SortOption } from "@/lib/albumUtils";
 
 export default function LibraryView() {
   const [albums, setAlbums] = useState<DiscogsRelease[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<"artist-asc" | "artist-desc" | "title-asc" | "title-desc" | "year-desc" | "year-asc">("artist-asc");
+  const [sortBy, setSortBy] = useState<SortOption>("artist-asc");
   const [selectedAlbum, setSelectedAlbum] = useState<DiscogsRelease | null>(
     null
   );
@@ -82,12 +83,17 @@ export default function LibraryView() {
     setSelectedSides(new Set());
     
     // Set loading states BEFORE clearing tracklist to prevent showing "not available" message
-    const hasReleaseId = !!album.basic_information?.id;
+    if (!album.basic_information) {
+      setIsLoadingTracklist(false);
+      return;
+    }
+    
+    const hasReleaseId = !!album.basic_information.id;
     setIsLoadingTracklist(hasReleaseId);
     setTracklistSides([]);
 
     const artist = album.basic_information.artists[0]?.name || "Unknown";
-    const albumTitle = album.basic_information.title;
+    const albumTitle = album.basic_information.title || "";
 
     // Verify album exists on Last.fm
     setIsLoadingVerification(true);
@@ -114,7 +120,7 @@ export default function LibraryView() {
     }
 
     // Fetch tracklist if we have a Discogs release ID
-    if (hasReleaseId) {
+    if (hasReleaseId && album.basic_information.id) {
       try {
         const tracklistResponse = await fetch(
           `/api/discogs/tracklist?releaseId=${album.basic_information.id}`
@@ -149,11 +155,16 @@ export default function LibraryView() {
       return;
     }
 
+    if (!selectedAlbum.basic_information) {
+      setError("Invalid album data");
+      return;
+    }
+
     setIsScrobbling(true);
     try {
       const artist =
         selectedAlbum.basic_information.artists[0]?.name || "Unknown";
-      const albumTitle = selectedAlbum.basic_information.title;
+      const albumTitle = selectedAlbum.basic_information.title || "";
 
       const response = await fetch("/api/scrobble", {
         method: "POST",
@@ -211,40 +222,7 @@ export default function LibraryView() {
     }
   };
 
-  const filteredAlbums = albums
-    .filter((album) => {
-      if (!searchQuery) return true;
-      const query = searchQuery.toLowerCase();
-      const artist =
-        album.basic_information.artists[0]?.name?.toLowerCase() || "";
-      const title = album.basic_information.title.toLowerCase();
-      return artist.includes(query) || title.includes(query);
-    })
-    .sort((a, b) => {
-      const artistA = a.basic_information.artists[0]?.name || "";
-      const artistB = b.basic_information.artists[0]?.name || "";
-      const titleA = a.basic_information.title || "";
-      const titleB = b.basic_information.title || "";
-      const yearA = a.basic_information.year || 0;
-      const yearB = b.basic_information.year || 0;
-
-      switch (sortBy) {
-        case "artist-asc":
-          return artistA.localeCompare(artistB);
-        case "artist-desc":
-          return artistB.localeCompare(artistA);
-        case "title-asc":
-          return titleA.localeCompare(titleB);
-        case "title-desc":
-          return titleB.localeCompare(titleA);
-        case "year-desc":
-          return yearB - yearA;
-        case "year-asc":
-          return yearA - yearB;
-        default:
-          return 0;
-      }
-    });
+  const filteredAlbums = filterAndSortAlbums(albums, searchQuery, sortBy);
 
   if (loading) {
     return (
@@ -337,13 +315,13 @@ export default function LibraryView() {
         </p>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-h-[70vh] overflow-y-auto">
-          {filteredAlbums.map((album) => {
-            const artist =
-              album.basic_information.artists[0]?.name || "Unknown";
-            const title = album.basic_information.title;
-            const coverImage =
-              album.basic_information.cover_image ||
-              album.basic_information.thumb;
+          {filteredAlbums
+            .filter((album) => album.basic_information)
+            .map((album) => {
+              const basicInfo = album.basic_information!;
+              const artist = basicInfo.artists[0]?.name || "Unknown";
+              const title = basicInfo.title || "";
+              const coverImage = basicInfo.cover_image || basicInfo.thumb;
 
             return (
               <div
@@ -417,13 +395,13 @@ export default function LibraryView() {
       )}
 
       {/* Scrobble Modal */}
-      {selectedAlbum && (
+      {selectedAlbum && selectedAlbum.basic_information && (
         <ScrobbleConfirmationModal
           pendingScrobble={{
             artist:
               selectedAlbum.basic_information.artists[0]?.name || "Unknown",
-            album: selectedAlbum.basic_information.title,
-            albumTitle: selectedAlbum.basic_information.title,
+            album: selectedAlbum.basic_information.title || "",
+            albumTitle: selectedAlbum.basic_information.title || "",
             discogsRelease: selectedAlbum,
           }}
           lastFmVerification={lastFmVerification}

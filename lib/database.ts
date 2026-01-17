@@ -78,16 +78,21 @@ export function saveDatabase(database: CoverDatabase): void {
 export function discogsReleaseToAlbumCover(
   release: DiscogsRelease
 ): AlbumCover {
+  if (!release.basic_information) {
+    throw new Error("Release missing basic_information");
+  }
+  
+  const basicInfo = release.basic_information;
   return {
-    discogsId: release.basic_information.id,
-    masterId: release.basic_information.master_id || null,
-    artist: release.basic_information.artists[0]?.name || "Unknown",
-    album: release.basic_information.title,
-    year: release.basic_information.year || null,
-    coverImageUrl: release.basic_information.cover_image || "",
-    thumbUrl: release.basic_information.thumb || "",
-    labels: release.basic_information.labels.map((label) => label.name),
-    formats: release.basic_information.formats.map((format) => format.name),
+    discogsId: basicInfo.id,
+    masterId: basicInfo.master_id || null,
+    artist: basicInfo.artists[0]?.name || "Unknown",
+    album: basicInfo.title || "",
+    year: basicInfo.year || null,
+    coverImageUrl: basicInfo.cover_image || "",
+    thumbUrl: basicInfo.thumb || "",
+    labels: (basicInfo.labels || []).map((label) => label.name),
+    formats: (basicInfo.formats || []).map((format) => format.name),
     lastUpdated: new Date().toISOString(),
     // Hashes will be generated during build process
     imageHash: undefined,

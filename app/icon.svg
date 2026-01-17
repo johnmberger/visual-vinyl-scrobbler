@@ -1,0 +1,112 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 100 100"
+>
+  <!-- Outer ring -->
+  <circle
+    cx="50"
+    cy="50"
+    r="48"
+    fill="#1a1a1a"
+    stroke="#333"
+    stroke-width="2"
+  />
+
+  <!-- Record grooves -->
+  <circle
+    cx="50"
+    cy="50"
+    r="42"
+    fill="none"
+    stroke="#2a2a2a"
+    stroke-width="0.5"
+  />
+  <circle
+    cx="50"
+    cy="50"
+    r="38"
+    fill="none"
+    stroke="#2a2a2a"
+    stroke-width="0.5"
+  />
+  <circle
+    cx="50"
+    cy="50"
+    r="34"
+    fill="none"
+    stroke="#2a2a2a"
+    stroke-width="0.5"
+  />
+  <circle
+    cx="50"
+    cy="50"
+    r="30"
+    fill="none"
+    stroke="#2a2a2a"
+    stroke-width="0.5"
+  />
+  <circle
+    cx="50"
+    cy="50"
+    r="26"
+    fill="none"
+    stroke="#2a2a2a"
+    stroke-width="0.5"
+  />
+  <circle
+    cx="50"
+    cy="50"
+    r="22"
+    fill="none"
+    stroke="#2a2a2a"
+    stroke-width="0.5"
+  />
+
+  <!-- Center label -->
+  <circle
+    cx="50"
+    cy="50"
+    r="12"
+    fill="#2a2a2a"
+  />
+  <circle
+    cx="50"
+    cy="50"
+    r="10"
+    fill="#1a1a1a"
+  />
+
+  <!-- Small ridges around center -->
+  <circle
+    cx="50"
+    cy="50"
+    r="6"
+    fill="none"
+    stroke="#3a3a3a"
+    stroke-width="0.3"
+  />
+  <circle
+    cx="50"
+    cy="50"
+    r="5.5"
+    fill="none"
+    stroke="#3a3a3a"
+    stroke-width="0.3"
+  />
+  <circle
+    cx="50"
+    cy="50"
+    r="5"
+    fill="none"
+    stroke="#3a3a3a"
+    stroke-width="0.3"
+  />
+
+  <!-- Center hole -->
+  <circle
+    cx="50"
+    cy="50"
+    r="4.5"
+    fill="#000"
+  />
+</svg>

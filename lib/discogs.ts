@@ -153,10 +153,11 @@ export async function searchDiscogsAlbum(
 
     // First, try to find in collection directly using normalized matching
     for (const item of collection) {
+      if (!item.basic_information) continue;
       const normalizedItemArtist = normalizeName(
         item.basic_information.artists[0]?.name || ""
       );
-      const normalizedItemAlbum = normalizeName(item.basic_information.title);
+      const normalizedItemAlbum = normalizeName(item.basic_information.title || "");
 
       // Check for matches (exact or contains)
       const artistMatches =
@@ -194,8 +195,8 @@ export async function searchDiscogsAlbum(
         // Try to find match in user's collection by ID or master_id
         const match = collection.find(
           (item) =>
-            item.basic_information.id === results[0].id ||
-            item.basic_information.master_id === results[0].master_id
+            item.basic_information?.id === results[0].id ||
+            item.basic_information?.master_id === results[0].master_id
         );
         if (match) {
           return match;
@@ -205,11 +206,12 @@ export async function searchDiscogsAlbum(
         for (const result of results.slice(0, 5)) {
           // Check if this result matches our collection by normalized names
           const collectionMatch = collection.find((item) => {
+            if (!item.basic_information) return false;
             const normalizedItemArtist = normalizeName(
               item.basic_information.artists[0]?.name || ""
             );
             const normalizedItemAlbum = normalizeName(
-              item.basic_information.title
+              item.basic_information.title || ""
             );
             const normalizedResultArtist = normalizeName(
               result.artist || ""

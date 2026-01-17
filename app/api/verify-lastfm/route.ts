@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         verified: true,
         message: hasTracklist
-          ? `Found "${lastFmAlbum.name}" by "${lastFmAlbum.artist}" on Last.fm with ${lastFmAlbum.tracks.length} tracks`
+          ? `Found "${lastFmAlbum.name}" by "${lastFmAlbum.artist}" on Last.fm with ${lastFmAlbum.tracks?.length || 0} tracks`
           : `Found "${lastFmAlbum.name}" by "${lastFmAlbum.artist}" on Last.fm`,
         artistName: lastFmAlbum.artist,
         albumName: lastFmAlbum.name,

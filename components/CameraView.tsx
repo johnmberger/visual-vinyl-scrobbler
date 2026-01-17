@@ -5,9 +5,20 @@ import CameraPreview from "./CameraPreview";
 import ScrobbleSuccessToast from "./ScrobbleSuccessToast";
 import ScrobbleConfirmationModal from "./ScrobbleConfirmationModal";
 import RecognitionErrorModal from "./RecognitionErrorModal";
+import { useCamera } from "@/hooks/useCamera";
+import { cropImageFromVideo } from "@/lib/imageUtils";
 
 export default function CameraView() {
-  const [isCapturing, setIsCapturing] = useState(false);
+  const {
+    isCapturing,
+    error: cameraError,
+    cameraStatus,
+    videoRef,
+    canvasRef,
+    startCamera,
+    stopCamera: stopCameraHook,
+  } = useCamera();
+  
   const [isProcessing, setIsProcessing] = useState(false);
   const [pendingScrobble, setPendingScrobble] = useState<{
     artist: string;
@@ -19,7 +30,6 @@ export default function CameraView() {
     discogsRelease?: any;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [cameraStatus, setCameraStatus] = useState<string>("");
   const [scrobbleTimestamp, setScrobbleTimestamp] = useState<number>(
     Math.floor(Date.now() / 1000)
   );
@@ -71,135 +81,18 @@ export default function CameraView() {
   const [isMatching, setIsMatching] = useState(false);
   const [matchConfidence, setMatchConfidence] = useState<number | null>(null);
   const [consecutiveMatches, setConsecutiveMatches] = useState(0);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const [isFallbackActive, setIsFallbackActive] = useState(false);
+  const [isCapturingForGemini, setIsCapturingForGemini] = useState(false);
   const matchingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const matchingStartTimeRef = useRef<number | null>(null);
   const fallbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Check camera availability on mount
+  // Combine camera error with other errors
   useEffect(() => {
-    const checkCameraAvailability = async () => {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setError(
-          "Camera API not available. Make sure you're using HTTPS (https://localhost:3000)"
-        );
-        return;
-      }
-
-      // Check if we're on HTTPS
-      if (
-        window.location.protocol !== "https:" &&
-        window.location.hostname !== "localhost"
-      ) {
-        setError(
-          "Camera requires HTTPS. Please use https://localhost:3000 or see HTTPS_SETUP.md"
-        );
-      }
-    };
-
-    checkCameraAvailability();
-  }, []);
-
-  const startCamera = useCallback(async () => {
-    try {
-      setError(null);
-      setCameraStatus("Checking camera availability...");
-
-      // Check if getUserMedia is available
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error(
-          "Camera API not available. Make sure you're using HTTPS and a modern browser."
-        );
-      }
-
-      setCameraStatus("Requesting camera access...");
-
-      // Try with environment camera first (for mobile), fallback to user camera
-      let stream: MediaStream | null = null;
-      let constraints = {
-        video: {
-          facingMode: "environment" as ConstrainDOMString,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-      };
-
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (envError) {
-        // Fallback to any available camera
-        constraints = {
-          video: {
-            facingMode: "environment",
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-        };
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      }
-
-      if (!stream) {
-        throw new Error("Failed to get camera stream");
-      }
-
-      // Video element should always be available now (always rendered)
-      if (!videoRef.current) {
-        console.error("Video element not available!");
-        throw new Error("Video element not available");
-      }
-
-      const video = videoRef.current;
-
-      // Set the stream - this should trigger autoplay
-      video.srcObject = stream;
-      streamRef.current = stream;
-
-      // Mark as capturing - video element is already rendered, just hidden
-      setIsCapturing(true);
-      setCameraStatus("");
-
-      // Try to play
-      video.play().catch((playError) => {
-        console.warn("Video play (non-blocking):", playError);
-      });
-    } catch (err: any) {
-      console.error("Error accessing camera:", err);
-
-      let errorMessage = "Failed to access camera.";
-
-      if (
-        err.name === "NotAllowedError" ||
-        err.name === "PermissionDeniedError"
-      ) {
-        errorMessage =
-          "Camera permission denied. Please allow camera access in your browser settings.";
-      } else if (
-        err.name === "NotFoundError" ||
-        err.name === "DevicesNotFoundError"
-      ) {
-        errorMessage =
-          "No camera found. Please connect a camera and try again.";
-      } else if (
-        err.name === "NotReadableError" ||
-        err.name === "TrackStartError"
-      ) {
-        errorMessage = "Camera is already in use by another application.";
-      } else if (
-        err.name === "OverconstrainedError" ||
-        err.name === "ConstraintNotSatisfiedError"
-      ) {
-        errorMessage =
-          "Camera doesn't support the requested settings. Trying with default settings...";
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-
-      setError(errorMessage);
-      setCameraStatus("");
+    if (cameraError) {
+      setError(cameraError);
     }
-  }, []);
+  }, [cameraError]);
 
   const stopCamera = useCallback(() => {
     // Clear matching interval
@@ -211,76 +104,30 @@ export default function CameraView() {
     if (fallbackTimeoutRef.current) {
       clearTimeout(fallbackTimeoutRef.current);
       fallbackTimeoutRef.current = null;
+      setIsFallbackActive(false);
     }
     matchingStartTimeRef.current = null;
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setIsCapturing(false);
+    
+    // Stop camera via hook
+    stopCameraHook();
+    
+    // Clear matching state
     setIsMatching(false);
     setMatchConfidence(null);
     setConsecutiveMatches(0);
-  }, []);
+    setIsCapturingForGemini(false);
+  }, [stopCameraHook]);
 
   const captureAndProcess = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current) return;
 
     setIsProcessing(true);
+    setIsCapturingForGemini(false); // Clear the flag once processing starts
     setError(null);
 
     try {
-      // Capture the image first before stopping camera
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const context = canvas.getContext("2d");
-
-      if (!context) {
-        throw new Error("Could not get canvas context");
-      }
-
-      // Set canvas dimensions to match video
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      // Draw video frame to canvas
-      context.drawImage(video, 0, 0);
-
-      // Crop to the square overlay area (75% width, centered, square aspect ratio)
-      // The square is centered and takes up 75% of the width
-      const cropSize = Math.min(video.videoWidth, video.videoHeight) * 0.75;
-      const cropX = (video.videoWidth - cropSize) / 2;
-      const cropY = (video.videoHeight - cropSize) / 2;
-
-      // Create a new canvas for the cropped image
-      const croppedCanvas = document.createElement("canvas");
-      croppedCanvas.width = cropSize;
-      croppedCanvas.height = cropSize;
-      const croppedContext = croppedCanvas.getContext("2d");
-
-      if (!croppedContext) {
-        throw new Error("Could not get cropped canvas context");
-      }
-
-      // Draw the cropped region to the new canvas
-      croppedContext.drawImage(
-        canvas,
-        cropX,
-        cropY,
-        cropSize,
-        cropSize,
-        0,
-        0,
-        cropSize,
-        cropSize
-      );
-
-      // Convert cropped image to base64
-      const imageData = croppedCanvas.toDataURL("image/jpeg", 0.8);
+      // Capture and crop the image using utility function
+      const imageData = cropImageFromVideo(videoRef.current, canvasRef.current);
 
       // Try image matching first (if database has hashes)
       let matchData = null;
@@ -582,11 +429,12 @@ export default function CameraView() {
         clearInterval(matchingIntervalRef.current);
         matchingIntervalRef.current = null;
       }
-      if (fallbackTimeoutRef.current) {
-        clearTimeout(fallbackTimeoutRef.current);
-        fallbackTimeoutRef.current = null;
-      }
-      matchingStartTimeRef.current = null;
+        if (fallbackTimeoutRef.current) {
+          clearTimeout(fallbackTimeoutRef.current);
+          fallbackTimeoutRef.current = null;
+          setIsFallbackActive(false);
+        }
+        matchingStartTimeRef.current = null;
       setMatchConfidence(null);
       setConsecutiveMatches(0);
       return;
@@ -607,6 +455,7 @@ export default function CameraView() {
     
     // Set timeout if not already set
     if (!fallbackTimeoutRef.current) {
+      setIsFallbackActive(true);
       // Set timeout to automatically capture and send to Gemini after 5 seconds of no hash match
       const timeoutId = setTimeout(() => {
         // Check if timeout was cleared (if fallbackTimeoutRef.current !== timeoutId, it was cleared)
@@ -618,6 +467,9 @@ export default function CameraView() {
         // Check current state - use refs to avoid stale closure
         // If we've been trying for 5+ seconds without a hash match, automatically capture and send to Gemini
         if (videoRef.current && canvasRef.current) {
+          // Set flag to show green border (picture is being taken for Gemini)
+          setIsCapturingForGemini(true);
+          
           // Clear the matching interval
           if (matchingIntervalRef.current) {
             clearInterval(matchingIntervalRef.current);
@@ -625,6 +477,7 @@ export default function CameraView() {
           }
           // Clear timeout ref
           fallbackTimeoutRef.current = null;
+          setIsFallbackActive(false);
           // Reset matching state
           matchingStartTimeRef.current = null;
           setMatchConfidence(null);
@@ -635,6 +488,7 @@ export default function CameraView() {
         } else {
           console.log("⏱️ Timeout reached but video/canvas not available");
           fallbackTimeoutRef.current = null;
+          setIsFallbackActive(false);
         }
       }, 5000); // 5 seconds timeout
       
@@ -665,41 +519,8 @@ export default function CameraView() {
           return;
         }
 
-        // Capture current frame
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        context.drawImage(video, 0, 0);
-        
-        // Crop to the square overlay area (75% width, centered, square aspect ratio)
-        const cropSize = Math.min(video.videoWidth, video.videoHeight) * 0.75;
-        const cropX = (video.videoWidth - cropSize) / 2;
-        const cropY = (video.videoHeight - cropSize) / 2;
-
-        // Create a new canvas for the cropped image
-        const croppedCanvas = document.createElement("canvas");
-        croppedCanvas.width = cropSize;
-        croppedCanvas.height = cropSize;
-        const croppedContext = croppedCanvas.getContext("2d");
-
-        if (!croppedContext) {
-          setIsMatching(false);
-          return;
-        }
-
-        // Draw the cropped region to the new canvas
-        croppedContext.drawImage(
-          canvas,
-          cropX,
-          cropY,
-          cropSize,
-          cropSize,
-          0,
-          0,
-          cropSize,
-          cropSize
-        );
-
-        const imageData = croppedCanvas.toDataURL("image/jpeg", 0.8);
+        // Capture and crop current frame using utility function
+        const imageData = cropImageFromVideo(video, canvas);
 
         // Try image matching
         try {
@@ -735,8 +556,8 @@ export default function CameraView() {
             const similarity = imageMatch.match.similarity;
             setMatchConfidence(similarity);
 
-            // Auto-capture requires very high confidence (85%+) to prevent false captures
-            if (similarity >= 0.85) {
+            // Auto-capture requires 70%+ confidence
+            if (similarity >= 0.7) {
               const newConsecutive = consecutiveMatches + 1;
               setConsecutiveMatches(newConsecutive);
 
@@ -750,9 +571,11 @@ export default function CameraView() {
                 if (fallbackTimeoutRef.current) {
                   clearTimeout(fallbackTimeoutRef.current);
                   fallbackTimeoutRef.current = null;
+                  setIsFallbackActive(false);
                 }
                 matchingStartTimeRef.current = null;
                 // Trigger capture
+                setIsCapturingForGemini(false); // Not for Gemini, it's a hash match
                 captureAndProcess();
                 return;
               }
@@ -813,6 +636,7 @@ export default function CameraView() {
           cameraStatus={cameraStatus}
           matchConfidence={matchConfidence}
           consecutiveMatches={consecutiveMatches}
+          isCapturingForGemini={isCapturingForGemini}
         />
 
         {/* Controls */}
