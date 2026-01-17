@@ -164,25 +164,34 @@ export function calculateSimilarity(
 export async function findMatchingAlbums(
   capturedImageHash: string,
   databaseAlbums: AlbumCover[],
-  threshold: number = 15 // Maximum Hamming distance to consider a match
+  threshold: number = 18 // Maximum Hamming distance to consider a match (increased for more forgiveness)
 ): Promise<ImageMatch[]> {
   const matches: ImageMatch[] = [];
 
   for (const album of databaseAlbums) {
-    // Try to match against cover image hash first, then thumbnail hash
-    const hashToCompare = album.imageHash || album.thumbHash;
-
-    if (!hashToCompare) {
-      continue; // Skip albums without hashes
+    // Try both cover image hash and thumbnail hash, use the best match
+    let bestDistance = Infinity;
+    
+    if (album.imageHash) {
+      const distance = calculateHammingDistance(capturedImageHash, album.imageHash);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+      }
+    }
+    
+    if (album.thumbHash) {
+      const distance = calculateHammingDistance(capturedImageHash, album.thumbHash);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+      }
     }
 
-    const distance = calculateHammingDistance(capturedImageHash, hashToCompare);
-
-    if (distance <= threshold) {
+    // If we found a hash and it's within threshold, add it
+    if (bestDistance !== Infinity && bestDistance <= threshold) {
       matches.push({
         album,
-        distance,
-        similarity: calculateSimilarity(distance),
+        distance: bestDistance,
+        similarity: calculateSimilarity(bestDistance),
       });
     }
   }
@@ -199,7 +208,7 @@ export async function findMatchingAlbums(
 export async function findBestMatch(
   capturedImageHash: string,
   databaseAlbums: AlbumCover[],
-  threshold: number = 15
+  threshold: number = 18 // Increased default threshold for more forgiveness
 ): Promise<ImageMatch | null> {
   const matches = await findMatchingAlbums(
     capturedImageHash,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { DatabaseStatsSkeleton } from "./SkeletonLoader";
 
 export default function DatabaseView() {
   const [isBuilding, setIsBuilding] = useState(false);
@@ -86,7 +87,7 @@ export default function DatabaseView() {
       <h2 className="text-2xl font-semibold mb-4">Cover Database</h2>
 
       <div className="space-y-4">
-        {stats && (
+        {stats ? (
           <div className="bg-gray-700 rounded-lg p-4">
             <h3 className="text-lg font-semibold mb-2">Database Statistics</h3>
             <div className="space-y-2 text-sm">
@@ -106,6 +107,8 @@ export default function DatabaseView() {
               </p>
             </div>
           </div>
+        ) : (
+          <DatabaseStatsSkeleton />
         )}
 
         <div className="mb-4">

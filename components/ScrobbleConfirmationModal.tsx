@@ -5,6 +5,12 @@ import LastFmVerificationStatus from "./LastFmVerificationStatus";
 import AlbumInfoCard from "./AlbumInfoCard";
 import TracklistSideSelector from "./TracklistSideSelector";
 import TimestampPicker from "./TimestampPicker";
+import {
+  LastFmVerificationSkeleton,
+  AlbumArtSkeleton,
+  AlbumInfoSkeleton,
+  TracklistSkeleton,
+} from "./SkeletonLoader";
 
 interface Track {
   position: string;
@@ -50,6 +56,8 @@ interface ScrobbleConfirmationModalProps {
   onConfirm: () => Promise<void>;
   onCancel: () => void;
   isScrobbling: boolean;
+  isLoadingVerification?: boolean;
+  isLoadingTracklist?: boolean;
 }
 
 export default function ScrobbleConfirmationModal({
@@ -63,19 +71,23 @@ export default function ScrobbleConfirmationModal({
   onConfirm,
   onCancel,
   isScrobbling,
+  isLoadingVerification = false,
+  isLoadingTracklist = false,
 }: ScrobbleConfirmationModalProps) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div className="bg-gray-800 rounded-lg p-5 max-w-5xl w-full max-h-[95vh] overflow-hidden flex flex-col">
         {/* Last.fm Verification Status - Full Width */}
-        {lastFmVerification && (
+        {isLoadingVerification ? (
+          <LastFmVerificationSkeleton />
+        ) : lastFmVerification ? (
           <LastFmVerificationStatus
             verified={lastFmVerification.verified}
             message={lastFmVerification.message}
             trackName={lastFmVerification.trackName}
             isSingleTrack={lastFmVerification.isSingleTrack}
           />
-        )}
+        ) : null}
 
         <div className="flex-1 overflow-y-auto pr-2">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -93,14 +105,18 @@ export default function ScrobbleConfirmationModal({
 
             {/* Right Column: Tracklist */}
             <div className="lg:col-span-2">
-              <TracklistSideSelector
-                sides={tracklistSides}
-                selectedSides={selectedSides}
-                onSelectionChange={onSelectionChange}
-                releaseId={
-                  pendingScrobble.discogsRelease?.basic_information?.id
-                }
-              />
+              {isLoadingTracklist ? (
+                <TracklistSkeleton />
+              ) : (
+                <TracklistSideSelector
+                  sides={tracklistSides}
+                  selectedSides={selectedSides}
+                  onSelectionChange={onSelectionChange}
+                  releaseId={
+                    pendingScrobble.discogsRelease?.basic_information?.id
+                  }
+                />
+              )}
 
               {/* Timestamp Picker - Below tracklist */}
               <div className="mt-4">

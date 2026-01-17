@@ -5,6 +5,7 @@ import { extractTextFromImage, parseAlbumInfo } from "@/lib/vision";
 import CameraPreview from "./CameraPreview";
 import ScrobbleSuccessToast from "./ScrobbleSuccessToast";
 import ScrobbleConfirmationModal from "./ScrobbleConfirmationModal";
+import RecognitionErrorModal from "./RecognitionErrorModal";
 
 export default function CameraView() {
   const [isCapturing, setIsCapturing] = useState(false);
@@ -46,10 +47,17 @@ export default function CameraView() {
     }>
   >([]);
   const [selectedSides, setSelectedSides] = useState<Set<string>>(new Set());
+  const [isLoadingVerification, setIsLoadingVerification] = useState(false);
+  const [isLoadingTracklist, setIsLoadingTracklist] = useState(false);
   const [scrobbleSuccess, setScrobbleSuccess] = useState<{
     artist: string;
     album: string;
     trackCount?: number;
+  } | null>(null);
+  const [recognitionError, setRecognitionError] = useState<{
+    type: "hash" | "ocr" | "parsing" | "not_found" | "general";
+    message: string;
+    capturedImage?: string;
   } | null>(null);
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(true);
   const [isMatching, setIsMatching] = useState(false);
@@ -231,6 +239,7 @@ export default function CameraView() {
 
       // Try image matching first (if database has hashes)
       let matchData = null;
+      let hashMatchFailed = false;
       try {
         const imageMatchResponse = await fetch("/api/match-image", {
           method: "POST",
@@ -242,7 +251,8 @@ export default function CameraView() {
 
         if (imageMatchResponse.ok) {
           const imageMatch = await imageMatchResponse.json();
-          if (imageMatch.success && imageMatch.match.similarity > 0.6) {
+          // Lowered threshold from 0.6 to 0.5 (50%) for more forgiveness
+          if (imageMatch.success && imageMatch.match.similarity > 0.5) {
             // Good match found via image matching
             matchData = {
               artist: imageMatch.match.album.artist,
@@ -269,21 +279,80 @@ export default function CameraView() {
               matchMethod: "image",
               confidence: imageMatch.match.confidence,
             };
+          } else {
+            hashMatchFailed = true;
+          }
+        } else {
+          const errorData = await imageMatchResponse.json().catch(() => ({}));
+          if (errorData.error?.includes("No albums with image hashes")) {
+            // Database doesn't have hashes - this is expected, not an error
+            // Just fall through to OCR
+            hashMatchFailed = false;
+          } else if (errorData.error?.includes("No matching album found")) {
+            // Hash matching tried but no match found - this is a failure
+            hashMatchFailed = true;
+            
+            // If we have debug info, show it in the error modal
+            if (errorData.debug) {
+              // Stop camera and show error modal with debug info
+              stopCamera();
+              setIsProcessing(false);
+              setRecognitionError({
+                type: "hash",
+                message:
+                  errorData.debug.message ||
+                  "No matching album found. The closest matches are shown below.",
+                capturedImage: imageData,
+                debugInfo: {
+                  closestMatches: errorData.debug.closestMatches,
+                  message: errorData.debug.message,
+                },
+              });
+              return;
+            }
+          } else {
+            // Other error - treat as failure
+            hashMatchFailed = true;
           }
         }
       } catch (err) {
-        // Image matching failed or not available, falling back to OCR
+        hashMatchFailed = true;
       }
 
       // Fall back to OCR if image matching didn't work
       if (!matchData) {
         // Extract text using Vision API
-        const textAnnotations = await extractTextFromImage(imageData);
+        let textAnnotations: any[] = [];
+        try {
+          textAnnotations = await extractTextFromImage(imageData);
+        } catch (ocrError: any) {
+          // Stop camera and show error modal
+          stopCamera();
+          setIsProcessing(false);
+          setRecognitionError({
+            type: hashMatchFailed ? "hash" : "ocr",
+            message:
+              hashMatchFailed && ocrError
+                ? "Image matching failed and text recognition is unavailable. Please try again with better lighting or rebuild the database with image hashes."
+                : "Text recognition failed. Please check your Google Cloud Vision API configuration or try again with better lighting.",
+            capturedImage: imageData,
+          });
+          return;
+        }
 
         if (textAnnotations.length === 0) {
-          throw new Error(
-            "No text found in image and image matching failed. Please try again with better lighting or rebuild the database with image hashes."
-          );
+          // Stop camera and show error modal
+          stopCamera();
+          setIsProcessing(false);
+          setRecognitionError({
+            type: hashMatchFailed ? "hash" : "ocr",
+            message:
+              hashMatchFailed
+                ? "Image matching failed and no text was found in the image. Please try again with better lighting or rebuild the database with image hashes."
+                : "No text found in the image. Please ensure the album cover text is clearly visible.",
+            capturedImage: imageData,
+          });
+          return;
         }
 
         // Google Vision API returns full text as first element, then individual words
@@ -297,9 +366,16 @@ export default function CameraView() {
         const { artist, album } = parseAlbumInfo(fullText);
 
         if (!artist || !album) {
-          throw new Error(
-            "Could not identify artist and album. Please ensure the album cover is clearly visible."
-          );
+          // Stop camera and show error modal
+          stopCamera();
+          setIsProcessing(false);
+          setRecognitionError({
+            type: "parsing",
+            message:
+              "Could not identify artist and album from the extracted text. Please ensure the album cover is clearly visible with readable text.",
+            capturedImage: imageData,
+          });
+          return;
         }
 
         // Match with Discogs collection
@@ -313,7 +389,17 @@ export default function CameraView() {
 
         if (!matchResponse.ok) {
           const errorData = await matchResponse.json();
-          throw new Error(errorData.error || "Album not found in collection");
+          // Stop camera and show error modal
+          stopCamera();
+          setIsProcessing(false);
+          setRecognitionError({
+            type: "not_found",
+            message:
+              errorData.error ||
+              "Album not found in your Discogs collection. Please verify the album is in your collection.",
+            capturedImage: imageData,
+          });
+          return;
         }
 
         matchData = await matchResponse.json();
@@ -323,8 +409,23 @@ export default function CameraView() {
       // Stop camera before showing confirmation
       stopCamera();
 
+      // Show modal immediately, then load data with skeletons
+      setPendingScrobble({
+        artist: matchData.artist,
+        album: matchData.albumTitle,
+        albumTitle: matchData.albumTitle,
+        image: imageData,
+        matchMethod: matchData.matchMethod,
+        confidence: matchData.confidence,
+        discogsRelease: matchData.album,
+      });
+
+      // Reset timestamp to current time for the pending scrobble
+      setScrobbleTimestamp(Math.floor(Date.now() / 1000));
+
       // Verify album exists on Last.fm before showing confirmation
       setLastFmVerification(null);
+      setIsLoadingVerification(true);
       try {
         const verifyResponse = await fetch("/api/verify-lastfm", {
           method: "POST",
@@ -344,12 +445,15 @@ export default function CameraView() {
       } catch (err) {
         console.warn("Could not verify with Last.fm:", err);
         // Continue anyway - verification is optional
+      } finally {
+        setIsLoadingVerification(false);
       }
 
       // Fetch tracklist if we have a Discogs release ID
       setTracklistSides([]);
       setSelectedSides(new Set());
       if (matchData.album?.basic_information?.id) {
+        setIsLoadingTracklist(true);
         try {
           const tracklistResponse = await fetch(
             `/api/discogs/tracklist?releaseId=${matchData.album.basic_information.id}`
@@ -375,22 +479,10 @@ export default function CameraView() {
         } catch (err) {
           console.error("Error fetching tracklist:", err);
           // Continue anyway - tracklist is optional
+        } finally {
+          setIsLoadingTracklist(false);
         }
       }
-
-      // Show confirmation dialog instead of scrobbling immediately
-      setPendingScrobble({
-        artist: matchData.artist,
-        album: matchData.albumTitle,
-        albumTitle: matchData.albumTitle,
-        image: imageData,
-        matchMethod: matchData.matchMethod,
-        confidence: matchData.confidence,
-        discogsRelease: matchData.album,
-      });
-
-      // Reset timestamp to current time for the pending scrobble
-      setScrobbleTimestamp(Math.floor(Date.now() / 1000));
 
       // Keep processing state until modal is ready (setTimeout ensures modal renders first)
       setTimeout(() => {
@@ -398,8 +490,35 @@ export default function CameraView() {
       }, 100);
     } catch (err) {
       console.error("Error processing image:", err);
-      setError(err instanceof Error ? err.message : "Failed to process image");
+      stopCamera();
       setIsProcessing(false);
+      
+      // Try to capture image for error display
+      let capturedImage: string | undefined;
+      try {
+        if (videoRef.current && canvasRef.current) {
+          const video = videoRef.current;
+          const canvas = canvasRef.current;
+          const context = canvas.getContext("2d");
+          if (context) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0);
+            capturedImage = canvas.toDataURL("image/jpeg", 0.8);
+          }
+        }
+      } catch {
+        // Ignore errors capturing image for display
+      }
+
+      setRecognitionError({
+        type: "general",
+        message:
+          err instanceof Error
+            ? err.message
+            : "Failed to process image. Please try again.",
+        capturedImage,
+      });
     }
   }, [stopCamera]);
 
@@ -465,12 +584,13 @@ export default function CameraView() {
 
           if (imageMatchResponse.ok) {
             const imageMatch = await imageMatchResponse.json();
-            if (imageMatch.success && imageMatch.match.similarity > 0.6) {
+            // Lowered threshold from 0.6 to 0.5 (50%) for more forgiveness
+            if (imageMatch.success && imageMatch.match.similarity > 0.5) {
               const similarity = imageMatch.match.similarity;
               setMatchConfidence(similarity);
 
-              // If high confidence (>0.75), increment consecutive matches
-              if (similarity > 0.75) {
+              // Lowered auto-capture threshold from 0.75 to 0.7 (70%) for more forgiveness
+              if (similarity > 0.7) {
                 const newConsecutive = consecutiveMatches + 1;
                 setConsecutiveMatches(newConsecutive);
 
@@ -640,6 +760,26 @@ export default function CameraView() {
           />
         )}
 
+        {/* Recognition Error Modal */}
+        {recognitionError && (
+          <RecognitionErrorModal
+            error={recognitionError}
+            onRetry={() => {
+              setRecognitionError(null);
+              // Restart camera for retry
+              startCamera();
+            }}
+            onCancel={() => {
+              setRecognitionError(null);
+            }}
+            onManualEntry={() => {
+              setRecognitionError(null);
+              // Scroll to top and show a message that user should use Library view
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
+        )}
+
         {/* Scrobble Confirmation Modal */}
         {pendingScrobble && (
           <ScrobbleConfirmationModal
@@ -650,6 +790,8 @@ export default function CameraView() {
             onSelectionChange={setSelectedSides}
             scrobbleTimestamp={scrobbleTimestamp}
             onTimestampChange={setScrobbleTimestamp}
+            isLoadingVerification={isLoadingVerification}
+            isLoadingTracklist={isLoadingTracklist}
             onConfirm={async () => {
               if (!pendingScrobble) return;
 

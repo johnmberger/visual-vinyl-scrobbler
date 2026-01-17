@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { DiscogsRelease } from "@/lib/discogs";
-import TimestampPicker from "./TimestampPicker";
+import ScrobbleConfirmationModal from "./ScrobbleConfirmationModal";
+import ScrobbleSuccessToast from "./ScrobbleSuccessToast";
+import { LibraryGridSkeleton } from "./SkeletonLoader";
 
 export default function LibraryView() {
   const [albums, setAlbums] = useState<DiscogsRelease[]>([]);
@@ -16,6 +18,35 @@ export default function LibraryView() {
     Math.floor(Date.now() / 1000)
   );
   const [isScrobbling, setIsScrobbling] = useState(false);
+  const [lastFmVerification, setLastFmVerification] = useState<{
+    verified: boolean;
+    message?: string;
+    trackName?: string;
+    artistName?: string;
+    albumName?: string;
+    hasTracklist?: boolean;
+    trackCount?: number;
+    isSingleTrack?: boolean;
+  } | null>(null);
+  const [tracklistSides, setTracklistSides] = useState<
+    Array<{
+      side: string;
+      tracks: Array<{
+        position: string;
+        title: string;
+        duration?: string;
+      }>;
+      label: string;
+    }>
+  >([]);
+  const [selectedSides, setSelectedSides] = useState<Set<string>>(new Set());
+  const [isLoadingVerification, setIsLoadingVerification] = useState(false);
+  const [isLoadingTracklist, setIsLoadingTracklist] = useState(false);
+  const [scrobbleSuccess, setScrobbleSuccess] = useState<{
+    artist: string;
+    album: string;
+    trackCount?: number;
+  } | null>(null);
 
   useEffect(() => {
     loadAlbums();
@@ -41,13 +72,73 @@ export default function LibraryView() {
     }
   };
 
-  const handleAlbumClick = (album: DiscogsRelease) => {
+  const handleAlbumClick = async (album: DiscogsRelease) => {
     setSelectedAlbum(album);
     setScrobbleTimestamp(Math.floor(Date.now() / 1000));
+    setLastFmVerification(null);
+    setTracklistSides([]);
+    setSelectedSides(new Set());
+
+    const artist = album.basic_information.artists[0]?.name || "Unknown";
+    const albumTitle = album.basic_information.title;
+
+    // Verify album exists on Last.fm
+    setIsLoadingVerification(true);
+    try {
+      const verifyResponse = await fetch("/api/verify-lastfm", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          artist,
+          album: albumTitle,
+        }),
+      });
+
+      if (verifyResponse.ok) {
+        const verifyData = await verifyResponse.json();
+        setLastFmVerification(verifyData);
+      }
+    } catch (err) {
+      console.warn("Could not verify with Last.fm:", err);
+    } finally {
+      setIsLoadingVerification(false);
+    }
+
+    // Fetch tracklist if we have a Discogs release ID
+    if (album.basic_information?.id) {
+      setIsLoadingTracklist(true);
+      try {
+        const tracklistResponse = await fetch(
+          `/api/discogs/tracklist?releaseId=${album.basic_information.id}`
+        );
+        if (tracklistResponse.ok) {
+          const tracklistData = await tracklistResponse.json();
+          if (tracklistData.sides && tracklistData.sides.length > 0) {
+            setTracklistSides(tracklistData.sides);
+            // Select all sides by default
+            setSelectedSides(
+              new Set(tracklistData.sides.map((s: any) => s.side))
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching tracklist:", err);
+      } finally {
+        setIsLoadingTracklist(false);
+      }
+    }
   };
 
   const handleScrobble = async () => {
     if (!selectedAlbum) return;
+
+    // Check if sides are selected (if tracklist is available)
+    if (tracklistSides.length > 0 && selectedSides.size === 0) {
+      setError("Please select at least one side to scrobble");
+      return;
+    }
 
     setIsScrobbling(true);
     try {
@@ -64,18 +155,48 @@ export default function LibraryView() {
           artist,
           album: albumTitle,
           timestamp: scrobbleTimestamp,
+          discogsRelease: selectedAlbum,
+          selectedSides:
+            tracklistSides.length > 0 ? Array.from(selectedSides) : undefined,
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to scrobble");
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to scrobble");
       }
 
-      alert(`Successfully scrobbled: ${artist} - ${albumTitle}`);
+      // Calculate track count for success message
+      let trackCount: number | undefined;
+      if (tracklistSides.length > 0 && selectedSides.size > 0) {
+        trackCount = Array.from(selectedSides).reduce((total, side) => {
+          const sideData = tracklistSides.find((s) => s.side === side);
+          return total + (sideData?.tracks.length || 0);
+        }, 0);
+      }
+
+      // Show success toast
+      setScrobbleSuccess({
+        artist,
+        album: albumTitle,
+        trackCount,
+      });
+
+      // Close modal
       setSelectedAlbum(null);
+      setLastFmVerification(null);
+      setTracklistSides([]);
+      setSelectedSides(new Set());
+
+      // Auto-hide success message after 5 seconds
+      setTimeout(() => {
+        setScrobbleSuccess(null);
+      }, 5000);
     } catch (err) {
       console.error("Error scrobbling:", err);
-      alert("Failed to scrobble album");
+      setError(
+        err instanceof Error ? err.message : "Failed to scrobble album"
+      );
     } finally {
       setIsScrobbling(false);
     }
@@ -92,13 +213,20 @@ export default function LibraryView() {
 
   if (loading) {
     return (
-      <div className="bg-gray-800 rounded-lg p-8 text-center">
-        <p className="text-xl">Loading your collection...</p>
+      <div className="space-y-4">
+        <div className="bg-gray-800 rounded-lg p-4">
+          <h2 className="text-2xl font-semibold mb-4">Your Library</h2>
+          <div className="mb-4">
+            <div className="w-full h-10 bg-gray-700 rounded-lg animate-pulse"></div>
+          </div>
+          <div className="h-5 bg-gray-700 rounded w-48 mb-4 animate-pulse"></div>
+          <LibraryGridSkeleton count={12} />
+        </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error && !selectedAlbum) {
     return (
       <div className="bg-gray-800 rounded-lg p-8">
         <p className="text-red-400 mb-4">{error}</p>
@@ -114,6 +242,11 @@ export default function LibraryView() {
 
   return (
     <div className="space-y-4">
+      {error && selectedAlbum && (
+        <div className="bg-red-900/50 border border-red-600 rounded-lg p-4">
+          <p className="text-red-200 text-sm">{error}</p>
+        </div>
+      )}
       <div className="bg-gray-800 rounded-lg p-4">
         <h2 className="text-2xl font-semibold mb-4">Your Library</h2>
 
@@ -172,47 +305,44 @@ export default function LibraryView() {
         </div>
       </div>
 
+      {/* Success Toast */}
+      {scrobbleSuccess && (
+        <ScrobbleSuccessToast
+          artist={scrobbleSuccess.artist}
+          album={scrobbleSuccess.album}
+          trackCount={scrobbleSuccess.trackCount}
+          onClose={() => setScrobbleSuccess(null)}
+        />
+      )}
+
       {/* Scrobble Modal */}
       {selectedAlbum && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-xl font-semibold mb-4">Scrobble Album</h3>
-
-            <div className="mb-4">
-              <p className="text-lg font-medium text-white mb-1">
-                {selectedAlbum.basic_information.artists[0]?.name || "Unknown"}
-              </p>
-              <p className="text-gray-300">
-                {selectedAlbum.basic_information.title}
-              </p>
-            </div>
-
-            <div className="mb-6">
-              <TimestampPicker
-                initialTimestamp={scrobbleTimestamp}
-                onTimestampChange={setScrobbleTimestamp}
-                label="Scrobble Time"
-              />
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleScrobble}
-                disabled={isScrobbling}
-                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors"
-              >
-                {isScrobbling ? "Scrobbling..." : "Scrobble"}
-              </button>
-              <button
-                onClick={() => setSelectedAlbum(null)}
-                disabled={isScrobbling}
-                className="px-6 py-3 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+        <ScrobbleConfirmationModal
+          pendingScrobble={{
+            artist:
+              selectedAlbum.basic_information.artists[0]?.name || "Unknown",
+            album: selectedAlbum.basic_information.title,
+            albumTitle: selectedAlbum.basic_information.title,
+            discogsRelease: selectedAlbum,
+          }}
+          lastFmVerification={lastFmVerification}
+          tracklistSides={tracklistSides}
+          selectedSides={selectedSides}
+          onSelectionChange={setSelectedSides}
+          scrobbleTimestamp={scrobbleTimestamp}
+          onTimestampChange={setScrobbleTimestamp}
+          onConfirm={handleScrobble}
+          onCancel={() => {
+            setSelectedAlbum(null);
+            setLastFmVerification(null);
+            setTracklistSides([]);
+            setSelectedSides(new Set());
+            setError(null);
+          }}
+          isScrobbling={isScrobbling}
+          isLoadingVerification={isLoadingVerification}
+          isLoadingTracklist={isLoadingTracklist}
+        />
       )}
     </div>
   );

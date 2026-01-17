@@ -21,7 +21,7 @@ export default function CameraPreview({
 }: CameraPreviewProps) {
   const isReadyToCapture =
     matchConfidence !== null &&
-    matchConfidence > 0.75 &&
+    matchConfidence > 0.7 && // Lowered from 0.75 to 0.7 for more forgiveness
     consecutiveMatches >= 1;
   return (
     <div className="relative bg-black rounded-lg overflow-hidden aspect-video mb-4 border-2 border-gray-700">

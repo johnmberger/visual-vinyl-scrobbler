@@ -31,18 +31,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find best match
-    const bestMatch = await findBestMatch(
+    // Find best match with more forgiving threshold (18 bits = ~72% similarity minimum)
+    // First, try with the standard threshold
+    let bestMatch = await findBestMatch(
       capturedHash,
       albumsWithHashes,
-      15 // Threshold: max Hamming distance
+      18 // Threshold: max Hamming distance (increased from 15 for more forgiveness)
     );
 
+    // If no match found, try with an even more forgiving threshold (22 bits = ~66% similarity)
     if (!bestMatch) {
+      bestMatch = await findBestMatch(
+        capturedHash,
+        albumsWithHashes,
+        22 // Very forgiving threshold for difficult cases
+      );
+    }
+
+    // If still no match, get all matches sorted by distance to help debug
+    if (!bestMatch) {
+      const { findMatchingAlbums } = await import("@/lib/imageMatching");
+      const allMatches = await findMatchingAlbums(
+        capturedHash,
+        albumsWithHashes,
+        30 // Very wide threshold to see what's closest
+      );
+
+      // Return top 5 closest matches for debugging
+      const topMatches = allMatches.slice(0, 5).map((m) => ({
+        artist: m.album.artist,
+        album: m.album.album,
+        distance: m.distance,
+        similarity: m.similarity,
+      }));
+
       return NextResponse.json(
         {
           error: "No matching album found in database",
           matches: [],
+          debug: {
+            closestMatches: topMatches,
+            totalAlbumsWithHashes: albumsWithHashes.length,
+            message:
+              topMatches.length > 0
+                ? `Closest match was "${topMatches[0].album}" by "${topMatches[0].artist}" with ${topMatches[0].distance} bits difference (${Math.round(topMatches[0].similarity * 100)}% similarity). This is below the threshold of 22 bits.`
+                : "No albums found within 30 bits difference. The captured image may be very different from database images.",
+          },
         },
         { status: 404 }
       );
@@ -56,11 +90,16 @@ export async function POST(request: NextRequest) {
         distance: bestMatch.distance,
         similarity: bestMatch.similarity,
         confidence:
-          bestMatch.similarity > 0.8
+          bestMatch.similarity > 0.75
             ? "high"
-            : bestMatch.similarity > 0.6
+            : bestMatch.similarity > 0.5
             ? "medium"
             : "low",
+      },
+      debug: {
+        thresholdUsed: bestMatch.distance <= 18 ? "standard (18)" : "forgiving (22)",
+        distance: bestMatch.distance,
+        similarityPercent: Math.round(bestMatch.similarity * 100),
       },
     });
   } catch (error) {
