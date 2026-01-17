@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import Image from "next/image";
+
 interface AlbumInfoCardProps {
   artist: string;
   albumTitle: string;
@@ -17,16 +20,34 @@ export default function AlbumInfoCard({
   matchMethod,
   confidence,
 }: AlbumInfoCardProps) {
+  const [imageLoaded, setImageLoaded] = useState(false);
+
   return (
     <div className="lg:col-span-1 space-y-4">
       {/* Album Art */}
       {(coverImage || thumb) && (
         <div className="flex justify-center">
-          <img
-            src={coverImage || thumb}
-            alt={`${artist} - ${albumTitle}`}
-            className="w-full max-w-xs object-cover rounded-lg border-2 border-gray-600"
-          />
+          <div className="relative w-full max-w-xs aspect-square rounded-lg border-2 border-gray-600 overflow-hidden bg-gray-600">
+            {/* Skeleton loader - shows while image is loading */}
+            {!imageLoaded && (
+              <div className="absolute inset-0 bg-gray-600 animate-pulse">
+                <div className="w-full h-full bg-gradient-to-br from-gray-600 via-gray-500 to-gray-600"></div>
+              </div>
+            )}
+            <Image
+              src={coverImage || thumb}
+              alt={`${artist} - ${albumTitle}`}
+              fill
+              sizes="(max-width: 1024px) 100vw, 320px"
+              className={`object-cover transition-opacity duration-300 ${
+                imageLoaded ? "opacity-100" : "opacity-0"
+              }`}
+              priority
+              quality={90}
+              onLoad={() => setImageLoaded(true)}
+              onError={() => setImageLoaded(true)}
+            />
+          </div>
         </div>
       )}
 

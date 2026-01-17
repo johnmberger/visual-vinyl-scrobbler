@@ -17,6 +17,7 @@ interface TracklistSideSelectorProps {
   selectedSides: Set<string>;
   onSelectionChange: (selectedSides: Set<string>) => void;
   releaseId?: number;
+  isLoading?: boolean;
 }
 
 export default function TracklistSideSelector({
@@ -24,6 +25,7 @@ export default function TracklistSideSelector({
   selectedSides,
   onSelectionChange,
   releaseId,
+  isLoading = false,
 }: TracklistSideSelectorProps) {
   const handleSideToggle = (side: string, checked: boolean) => {
     const newSelected = new Set(selectedSides);
@@ -35,11 +37,17 @@ export default function TracklistSideSelector({
     onSelectionChange(newSelected);
   };
 
+  // Don't show "not available" message while loading
+  if (isLoading) {
+    return null; // Skeleton is shown by parent component
+  }
+
+  // Only show "not available" message after loading is complete
   if (sides.length === 0) {
     return (
       <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
         <p className="text-gray-400 text-sm">
-          Tracklist not available. Will scrobble album as a single track.
+          Tracklist not available. Will attempt to scrobble using Last.fm album information.
         </p>
         {releaseId && (
           <p className="text-gray-500 text-xs mt-1">Release ID: {releaseId}</p>
@@ -50,17 +58,14 @@ export default function TracklistSideSelector({
 
   return (
     <>
-      <p className="text-gray-300 text-sm font-semibold mb-3">
-        Select Sides to Scrobble:
-      </p>
       <div className="space-y-2 max-h-[60vh] overflow-y-auto">
         {sides.map((side) => (
           <div
             key={side.side}
-            className={`bg-gray-700/50 rounded-lg p-3 border ${
+            className={`bg-gray-700/50 rounded-lg p-3 border transition-all duration-200 ${
               selectedSides.has(side.side)
-                ? "border-blue-500"
-                : "border-gray-600"
+                ? "border-blue-500 shadow-md shadow-blue-500/20"
+                : "border-gray-600 hover:border-gray-500"
             }`}
           >
             <label className="flex items-start cursor-pointer">
@@ -68,7 +73,7 @@ export default function TracklistSideSelector({
                 type="checkbox"
                 checked={selectedSides.has(side.side)}
                 onChange={(e) => handleSideToggle(side.side, e.target.checked)}
-                className="w-5 h-5 mt-0.5 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500 focus:ring-2 flex-shrink-0"
+                className="w-5 h-5 mt-0.5 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500 focus:ring-2 flex-shrink-0 transition-all duration-150 checked:scale-110"
               />
               <div className="ml-3 flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1.5">

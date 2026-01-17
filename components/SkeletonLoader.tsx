@@ -4,8 +4,7 @@
 export function LastFmVerificationSkeleton() {
   return (
     <div className="mb-4 p-3 rounded bg-gray-700/50 border border-gray-600 animate-pulse">
-      <div className="h-4 bg-gray-600 rounded w-32 mb-2"></div>
-      <div className="h-3 bg-gray-600 rounded w-48"></div>
+      <div className="h-4 bg-gray-600 rounded w-40"></div>
     </div>
   );
 }

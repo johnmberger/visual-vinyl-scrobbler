@@ -127,8 +127,8 @@ export default function RecognitionErrorModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+      <div className="bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-in zoom-in-95 fade-in duration-200">
         <div className="flex items-start gap-4 mb-6">
           <div className="flex-shrink-0">{getErrorIcon()}</div>
           <div className="flex-1">
@@ -205,21 +205,21 @@ export default function RecognitionErrorModal({
         <div className="flex gap-3">
           <button
             onClick={onRetry}
-            className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition-colors"
+            className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] rounded-lg font-semibold transition-all duration-150 shadow-lg hover:shadow-blue-500/20"
           >
             Try Again
           </button>
           {onManualEntry && (
             <button
               onClick={onManualEntry}
-              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold transition-colors"
+              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 active:scale-[0.98] rounded-lg font-semibold transition-all duration-150 shadow-lg hover:shadow-purple-500/20"
             >
               Use Library
             </button>
           )}
           <button
             onClick={onCancel}
-            className="px-6 py-3 bg-gray-600 hover:bg-gray-500 rounded-lg font-semibold transition-colors"
+            className="px-6 py-3 bg-gray-600 hover:bg-gray-500 active:scale-[0.98] rounded-lg font-semibold transition-all duration-150"
           >
             Cancel
           </button>

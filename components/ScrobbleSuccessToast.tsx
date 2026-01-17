@@ -14,8 +14,8 @@ export default function ScrobbleSuccessToast({
   onClose,
 }: ScrobbleSuccessToastProps) {
   return (
-    <div className="fixed top-4 right-4 z-50 animate-in slide-in-from-top-5">
-      <div className="bg-green-600 text-white rounded-lg shadow-lg p-4 min-w-[300px] max-w-md border border-green-500">
+    <div className="fixed top-4 right-4 z-50 animate-in slide-in-from-top-5 fade-in zoom-in-95 duration-300">
+      <div className="bg-green-600 text-white rounded-lg shadow-lg p-4 min-w-[300px] max-w-md border border-green-500 hover:shadow-xl transition-shadow duration-200">
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0">
             <svg
@@ -47,7 +47,7 @@ export default function ScrobbleSuccessToast({
           </div>
           <button
             onClick={onClose}
-            className="flex-shrink-0 text-white/80 hover:text-white transition-colors"
+            className="flex-shrink-0 text-white/80 hover:text-white active:scale-90 transition-all duration-150 rounded p-0.5"
           >
             <svg
               className="w-5 h-5"

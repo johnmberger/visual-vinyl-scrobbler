@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { DiscogsRelease } from "@/lib/discogs";
 import ScrobbleConfirmationModal from "./ScrobbleConfirmationModal";
 import ScrobbleSuccessToast from "./ScrobbleSuccessToast";
-import { LibraryGridSkeleton } from "./SkeletonLoader";
+import { LibraryGridSkeleton, AlbumCardSkeleton } from "./SkeletonLoader";
 
 export default function LibraryView() {
   const [albums, setAlbums] = useState<DiscogsRelease[]>([]);
@@ -47,6 +48,7 @@ export default function LibraryView() {
     album: string;
     trackCount?: number;
   } | null>(null);
+  const [loadedImages, setLoadedImages] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     loadAlbums();
@@ -76,8 +78,12 @@ export default function LibraryView() {
     setSelectedAlbum(album);
     setScrobbleTimestamp(Math.floor(Date.now() / 1000));
     setLastFmVerification(null);
-    setTracklistSides([]);
     setSelectedSides(new Set());
+    
+    // Set loading states BEFORE clearing tracklist to prevent showing "not available" message
+    const hasReleaseId = !!album.basic_information?.id;
+    setIsLoadingTracklist(hasReleaseId);
+    setTracklistSides([]);
 
     const artist = album.basic_information.artists[0]?.name || "Unknown";
     const albumTitle = album.basic_information.title;
@@ -107,8 +113,7 @@ export default function LibraryView() {
     }
 
     // Fetch tracklist if we have a Discogs release ID
-    if (album.basic_information?.id) {
-      setIsLoadingTracklist(true);
+    if (hasReleaseId) {
       try {
         const tracklistResponse = await fetch(
           `/api/discogs/tracklist?releaseId=${album.basic_information.id}`
@@ -128,6 +133,9 @@ export default function LibraryView() {
       } finally {
         setIsLoadingTracklist(false);
       }
+    } else {
+      // No release ID, so no tracklist to load
+      setIsLoadingTracklist(false);
     }
   };
 
@@ -256,7 +264,7 @@ export default function LibraryView() {
             placeholder="Search albums..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-2 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-2 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-gray-600 transition-all duration-200"
           />
         </div>
 
@@ -277,15 +285,36 @@ export default function LibraryView() {
             return (
               <div
                 key={album.id}
-                className="bg-gray-700 rounded-lg overflow-hidden hover:bg-gray-600 transition-colors cursor-pointer"
+                className="bg-gray-700 rounded-lg overflow-hidden hover:bg-gray-600 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 cursor-pointer shadow-md hover:shadow-lg"
                 onClick={() => handleAlbumClick(album)}
               >
                 {coverImage ? (
-                  <img
-                    src={coverImage}
-                    alt={`${artist} - ${title}`}
-                    className="w-full aspect-square object-cover"
-                  />
+                  <div className="relative w-full aspect-square bg-gray-600 overflow-hidden">
+                    {/* Skeleton loader - shows while image is loading */}
+                    {!loadedImages.has(album.id) && (
+                      <div className="absolute inset-0 bg-gray-600 animate-pulse">
+                        <div className="w-full h-full bg-gradient-to-br from-gray-600 via-gray-500 to-gray-600"></div>
+                      </div>
+                    )}
+                    <Image
+                      src={coverImage}
+                      alt={`${artist} - ${title}`}
+                      fill
+                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                      className={`object-cover transition-opacity duration-300 ${
+                        loadedImages.has(album.id) ? "opacity-100" : "opacity-0"
+                      }`}
+                      loading="lazy"
+                      quality={85}
+                      onLoad={() => {
+                        setLoadedImages((prev) => new Set(prev).add(album.id));
+                      }}
+                      onError={() => {
+                        // Mark as loaded even on error to hide skeleton
+                        setLoadedImages((prev) => new Set(prev).add(album.id));
+                      }}
+                    />
+                  </div>
                 ) : (
                   <div className="w-full aspect-square bg-gray-600 flex items-center justify-center">
                     <span className="text-gray-400 text-sm">No Cover</span>

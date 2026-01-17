@@ -250,8 +250,37 @@ export default function CameraView() {
       // Draw video frame to canvas
       context.drawImage(video, 0, 0);
 
-      // Convert to base64
-      const imageData = canvas.toDataURL("image/jpeg", 0.8);
+      // Crop to the square overlay area (75% width, centered, square aspect ratio)
+      // The square is centered and takes up 75% of the width
+      const cropSize = Math.min(video.videoWidth, video.videoHeight) * 0.75;
+      const cropX = (video.videoWidth - cropSize) / 2;
+      const cropY = (video.videoHeight - cropSize) / 2;
+
+      // Create a new canvas for the cropped image
+      const croppedCanvas = document.createElement("canvas");
+      croppedCanvas.width = cropSize;
+      croppedCanvas.height = cropSize;
+      const croppedContext = croppedCanvas.getContext("2d");
+
+      if (!croppedContext) {
+        throw new Error("Could not get cropped canvas context");
+      }
+
+      // Draw the cropped region to the new canvas
+      croppedContext.drawImage(
+        canvas,
+        cropX,
+        cropY,
+        cropSize,
+        cropSize,
+        0,
+        0,
+        cropSize,
+        cropSize
+      );
+
+      // Convert cropped image to base64
+      const imageData = croppedCanvas.toDataURL("image/jpeg", 0.8);
 
       // Try image matching first (if database has hashes)
       let matchData = null;
@@ -493,7 +522,33 @@ export default function CameraView() {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             context.drawImage(video, 0, 0);
-            capturedImage = canvas.toDataURL("image/jpeg", 0.8);
+            
+            // Crop to the square overlay area for error display
+            const cropSize = Math.min(video.videoWidth, video.videoHeight) * 0.75;
+            const cropX = (video.videoWidth - cropSize) / 2;
+            const cropY = (video.videoHeight - cropSize) / 2;
+
+            const croppedCanvas = document.createElement("canvas");
+            croppedCanvas.width = cropSize;
+            croppedCanvas.height = cropSize;
+            const croppedContext = croppedCanvas.getContext("2d");
+
+            if (croppedContext) {
+              croppedContext.drawImage(
+                canvas,
+                cropX,
+                cropY,
+                cropSize,
+                cropSize,
+                0,
+                0,
+                cropSize,
+                cropSize
+              );
+              capturedImage = croppedCanvas.toDataURL("image/jpeg", 0.8);
+            } else {
+              capturedImage = canvas.toDataURL("image/jpeg", 0.8);
+            }
           }
         }
       } catch {
@@ -614,7 +669,37 @@ export default function CameraView() {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         context.drawImage(video, 0, 0);
-        const imageData = canvas.toDataURL("image/jpeg", 0.8);
+        
+        // Crop to the square overlay area (75% width, centered, square aspect ratio)
+        const cropSize = Math.min(video.videoWidth, video.videoHeight) * 0.75;
+        const cropX = (video.videoWidth - cropSize) / 2;
+        const cropY = (video.videoHeight - cropSize) / 2;
+
+        // Create a new canvas for the cropped image
+        const croppedCanvas = document.createElement("canvas");
+        croppedCanvas.width = cropSize;
+        croppedCanvas.height = cropSize;
+        const croppedContext = croppedCanvas.getContext("2d");
+
+        if (!croppedContext) {
+          setIsMatching(false);
+          return;
+        }
+
+        // Draw the cropped region to the new canvas
+        croppedContext.drawImage(
+          canvas,
+          cropX,
+          cropY,
+          cropSize,
+          cropSize,
+          0,
+          0,
+          cropSize,
+          cropSize
+        );
+
+        const imageData = croppedCanvas.toDataURL("image/jpeg", 0.8);
 
         // Try image matching
         try {
@@ -734,14 +819,14 @@ export default function CameraView() {
         {!isCapturing ? (
           <button
             onClick={startCamera}
-            className="w-full py-4 bg-green-600 hover:bg-green-700 rounded-lg font-semibold text-lg transition-colors"
+            className="w-full py-4 bg-green-600 hover:bg-green-700 active:scale-[0.98] rounded-lg font-semibold text-lg transition-all duration-150 shadow-lg hover:shadow-green-500/20"
           >
             Start Camera
           </button>
         ) : (
           <div className="space-y-3">
             {/* Auto-capture toggle */}
-            <div className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg border border-gray-600">
+            <div className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg border border-gray-600 hover:border-gray-500 transition-all duration-150">
               <div className="flex items-center gap-2">
                 <svg
                   className="w-5 h-5 text-gray-300"
@@ -785,14 +870,14 @@ export default function CameraView() {
               <button
                 onClick={captureAndProcess}
                 disabled={isProcessing || autoCaptureEnabled}
-                className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold text-lg transition-colors"
+                className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] disabled:bg-gray-600 disabled:cursor-not-allowed disabled:active:scale-100 rounded-lg font-semibold text-lg transition-all duration-150 shadow-lg hover:shadow-blue-500/20"
               >
                 {isProcessing ? "Processing..." : "Capture Album"}
               </button>
               <button
                 onClick={stopCamera}
                 disabled={isProcessing}
-                className="px-6 py-4 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors"
+                className="px-6 py-4 bg-red-600 hover:bg-red-700 active:scale-[0.98] disabled:bg-gray-600 disabled:cursor-not-allowed disabled:active:scale-100 rounded-lg font-semibold transition-all duration-150"
               >
                 Stop
               </button>

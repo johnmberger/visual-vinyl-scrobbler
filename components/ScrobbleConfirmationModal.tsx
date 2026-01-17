@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import LastFmVerificationStatus from "./LastFmVerificationStatus";
 import AlbumInfoCard from "./AlbumInfoCard";
 import TracklistSideSelector from "./TracklistSideSelector";
@@ -74,9 +74,36 @@ export default function ScrobbleConfirmationModal({
   isLoadingVerification = false,
   isLoadingTracklist = false,
 }: ScrobbleConfirmationModalProps) {
+  // Prevent body scrolling when modal is open
+  useEffect(() => {
+    // Save the original overflow style
+    const originalOverflow = document.body.style.overflow;
+    // Disable scrolling
+    document.body.style.overflow = "hidden";
+
+    // Restore scrolling when modal closes
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
+
+  // Handle Escape key to dismiss modal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isScrobbling) {
+        onCancel();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [onCancel, isScrobbling]);
+
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg p-5 max-w-5xl w-full max-h-[95vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+      <div className="bg-gray-800 rounded-lg p-5 max-w-5xl w-full max-h-[95vh] overflow-hidden flex flex-col animate-in zoom-in-95 fade-in duration-200">
         {/* Last.fm Verification Status - Full Width */}
         {isLoadingVerification ? (
           <LastFmVerificationSkeleton />
@@ -115,6 +142,7 @@ export default function ScrobbleConfirmationModal({
                   releaseId={
                     pendingScrobble.discogsRelease?.basic_information?.id
                   }
+                  isLoading={isLoadingTracklist}
                 />
               )}
 
@@ -135,14 +163,14 @@ export default function ScrobbleConfirmationModal({
           <button
             onClick={onConfirm}
             disabled={isScrobbling}
-            className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors"
+            className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] disabled:bg-gray-600 disabled:cursor-not-allowed disabled:active:scale-100 rounded-lg font-semibold transition-all duration-150 shadow-lg hover:shadow-blue-500/20"
           >
             {isScrobbling ? "Scrobbling..." : "Confirm & Scrobble"}
           </button>
           <button
             onClick={onCancel}
             disabled={isScrobbling}
-            className="px-6 py-3 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors"
+            className="px-6 py-3 bg-gray-600 hover:bg-gray-500 active:scale-[0.98] disabled:bg-gray-700 disabled:cursor-not-allowed disabled:active:scale-100 rounded-lg font-semibold transition-all duration-150"
           >
             Cancel
           </button>

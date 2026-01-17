@@ -634,7 +634,6 @@ function parseDuration(duration: string): number {
   return 180; // Default 3 minutes
 }
 
-// Note: For album scrobbling, Last.fm expects individual tracks
-// This is a simplified implementation that scrobbles the album as a single track
-// For a more complete solution, you'd fetch the tracklist from Discogs or Last.fm
-// and scrobble each track individually
+// Scrobbles albums by scrobbling individual tracks from the tracklist
+// Uses Discogs tracklist when available, falls back to Last.fm tracklist,
+// and only as a last resort scrobbles the album title as a single track

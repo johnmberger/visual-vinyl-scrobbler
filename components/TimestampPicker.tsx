@@ -50,7 +50,10 @@ export default function TimestampPicker({
     onTimestampChange(Math.floor(now.getTime() / 1000));
   };
 
+  const [isAdjusting, setIsAdjusting] = useState(false);
+
   const adjustTime = (minutes: number) => {
+    setIsAdjusting(true);
     const currentDate = new Date(dateTime);
     currentDate.setMinutes(currentDate.getMinutes() + minutes);
     const year = currentDate.getFullYear();
@@ -61,6 +64,9 @@ export default function TimestampPicker({
     const newDateTime = `${year}-${month}-${day}T${hours}:${mins}`;
     setDateTime(newDateTime);
     onTimestampChange(Math.floor(currentDate.getTime() / 1000));
+    
+    // Reset animation state after brief delay
+    setTimeout(() => setIsAdjusting(false), 300);
   };
 
   const currentTimestamp = new Date(dateTime).getTime() / 1000;
@@ -81,14 +87,14 @@ export default function TimestampPicker({
       <label className="text-sm font-medium text-gray-300 block">{label}</label>
 
       {showPicker ? (
-        <div className="space-y-3 p-4 bg-gray-700/50 rounded-lg border border-gray-600">
+        <div className="space-y-3 p-4 bg-gray-700/50 rounded-lg border border-gray-600 animate-in fade-in slide-in-from-top-2 duration-200">
           {/* Date/Time Input */}
           <div>
             <input
               type="datetime-local"
               value={dateTime}
               onChange={handleDateTimeChange}
-              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
             />
           </div>
 
@@ -98,49 +104,49 @@ export default function TimestampPicker({
               <button
                 type="button"
                 onClick={setToNow}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium transition-colors"
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 rounded text-sm font-medium transition-all duration-150"
               >
                 Now
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(-60)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
+                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 -1h
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(-30)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
+                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 -30m
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(-15)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
+                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 -15m
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(15)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
+                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 +15m
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(30)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
+                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 +30m
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(60)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
+                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 +1h
               </button>
@@ -148,27 +154,26 @@ export default function TimestampPicker({
             <button
               type="button"
               onClick={() => setShowPicker(false)}
-              className="text-xs text-gray-400 hover:text-gray-300 self-start transition-colors"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-lg text-sm font-medium text-white transition-all duration-150 mt-2 shadow-lg hover:shadow-blue-500/20"
             >
               Done
             </button>
           </div>
         </div>
       ) : (
-        <div className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg border border-gray-600 hover:border-gray-500 transition-colors">
+        <div
+          onClick={() => setShowPicker(true)}
+          className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg border border-gray-600 hover:border-gray-500 active:scale-[0.98] transition-all duration-150 cursor-pointer"
+        >
           <div className="flex items-center gap-3">
-            <div className="text-white">
+            <div className={`text-white transition-all duration-200 ${isAdjusting ? 'scale-105 text-blue-300' : ''}`}>
               <div className="text-sm font-medium">{formattedTime}</div>
               <div className="text-xs text-gray-400">{formattedDate}</div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowPicker(true)}
-            className="text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors"
-          >
+          <div className="text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors">
             Adjust
-          </button>
+          </div>
         </div>
       )}
     </div>

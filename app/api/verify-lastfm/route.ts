@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     if (track) {
       return NextResponse.json({
         verified: true,
-        message: `Found track "${track.name}" by "${track.artist}" on Last.fm. Will scrobble as a single track.`,
+        message: `Found track "${track.name}" by "${track.artist}" on Last.fm. Will scrobble this track (album tracklist not available).`,
         trackName: track.name,
         artistName: track.artist,
         hasTracklist: false,
