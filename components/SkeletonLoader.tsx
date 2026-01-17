@@ -56,7 +56,6 @@ export function TracklistSideSkeleton() {
 export function TracklistSkeleton() {
   return (
     <div className="space-y-3">
-      <div className="h-4 bg-gray-700 rounded w-48 mb-3 animate-pulse"></div>
       <div className="space-y-2">
         <TracklistSideSkeleton />
         <TracklistSideSkeleton />

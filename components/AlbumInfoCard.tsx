@@ -53,8 +53,8 @@ export default function AlbumInfoCard({
 
       {/* Album Info */}
       <div>
-        <p className="text-lg font-medium text-white mb-1">{artist}</p>
-        <p className="text-gray-300 text-base">{albumTitle}</p>
+        <p className="text-xl font-medium text-white mb-1">{artist}</p>
+        <p className="text-gray-300 text-lg">{albumTitle}</p>
         {matchMethod && (
           <div className="flex items-center gap-1.5 text-gray-400 text-xs mt-1">
             <svg

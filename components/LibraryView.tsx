@@ -12,6 +12,7 @@ export default function LibraryView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"artist-asc" | "artist-desc" | "title-asc" | "title-desc" | "year-desc" | "year-asc">("artist-asc");
   const [selectedAlbum, setSelectedAlbum] = useState<DiscogsRelease | null>(
     null
   );
@@ -210,22 +211,49 @@ export default function LibraryView() {
     }
   };
 
-  const filteredAlbums = albums.filter((album) => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    const artist =
-      album.basic_information.artists[0]?.name?.toLowerCase() || "";
-    const title = album.basic_information.title.toLowerCase();
-    return artist.includes(query) || title.includes(query);
-  });
+  const filteredAlbums = albums
+    .filter((album) => {
+      if (!searchQuery) return true;
+      const query = searchQuery.toLowerCase();
+      const artist =
+        album.basic_information.artists[0]?.name?.toLowerCase() || "";
+      const title = album.basic_information.title.toLowerCase();
+      return artist.includes(query) || title.includes(query);
+    })
+    .sort((a, b) => {
+      const artistA = a.basic_information.artists[0]?.name || "";
+      const artistB = b.basic_information.artists[0]?.name || "";
+      const titleA = a.basic_information.title || "";
+      const titleB = b.basic_information.title || "";
+      const yearA = a.basic_information.year || 0;
+      const yearB = b.basic_information.year || 0;
+
+      switch (sortBy) {
+        case "artist-asc":
+          return artistA.localeCompare(artistB);
+        case "artist-desc":
+          return artistB.localeCompare(artistA);
+        case "title-asc":
+          return titleA.localeCompare(titleB);
+        case "title-desc":
+          return titleB.localeCompare(titleA);
+        case "year-desc":
+          return yearB - yearA;
+        case "year-asc":
+          return yearA - yearB;
+        default:
+          return 0;
+      }
+    });
 
   if (loading) {
     return (
       <div className="space-y-4">
         <div className="bg-gray-800 rounded-lg p-4">
           <h2 className="text-2xl font-semibold mb-4">Your Library</h2>
-          <div className="mb-4">
-            <div className="w-full h-10 bg-gray-700 rounded-lg animate-pulse"></div>
+          <div className="mb-4 flex gap-3">
+            <div className="flex-1 h-10 bg-gray-700 rounded-lg animate-pulse"></div>
+            <div className="w-40 h-10 bg-gray-700 rounded-lg animate-pulse"></div>
           </div>
           <div className="h-5 bg-gray-700 rounded w-48 mb-4 animate-pulse"></div>
           <LibraryGridSkeleton count={12} />
@@ -258,14 +286,49 @@ export default function LibraryView() {
       <div className="bg-gray-800 rounded-lg p-4">
         <h2 className="text-2xl font-semibold mb-4">Your Library</h2>
 
-        <div className="mb-4">
-          <input
-            type="text"
-            placeholder="Search albums..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-2 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-gray-600 transition-all duration-200"
-          />
+        <div className="mb-4 flex gap-3">
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              placeholder="Search albums..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full px-4 py-2 pr-10 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-gray-600 transition-all duration-200"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors p-1"
+                aria-label="Clear search"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="px-4 py-2 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-gray-600 transition-all duration-200 text-white cursor-pointer"
+          >
+            <option value="artist-asc">Artist (A-Z)</option>
+            <option value="artist-desc">Artist (Z-A)</option>
+            <option value="title-asc">Album (A-Z)</option>
+            <option value="title-desc">Album (Z-A)</option>
+            <option value="year-desc">Year (Newest)</option>
+            <option value="year-asc">Year (Oldest)</option>
+          </select>
         </div>
 
         <p className="text-gray-400 mb-4">
@@ -285,8 +348,17 @@ export default function LibraryView() {
             return (
               <div
                 key={album.id}
-                className="bg-gray-700 rounded-lg overflow-hidden hover:bg-gray-600 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 cursor-pointer shadow-md hover:shadow-lg"
+                tabIndex={0}
+                role="button"
+                aria-label={`${artist} - ${title}`}
+                className="bg-gray-700 rounded-lg overflow-hidden hover:bg-gray-600 hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-all duration-200 cursor-pointer shadow-md hover:shadow-lg"
                 onClick={() => handleAlbumClick(album)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleAlbumClick(album);
+                  }
+                }}
               >
                 {coverImage ? (
                   <div className="relative w-full aspect-square bg-gray-600 overflow-hidden">
