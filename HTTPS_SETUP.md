@@ -4,7 +4,7 @@ Modern browsers require HTTPS to access the camera API. This guide will help you
 
 ## Quick Setup (Recommended)
 
-Next.js 13.5+ has built-in HTTPS support. Simply run:
+Next.js 15+ has built-in HTTPS support. Simply run:
 
 ```bash
 npm run dev:https

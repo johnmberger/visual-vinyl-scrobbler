@@ -40,15 +40,16 @@ When you capture an album cover:
    - Generates a hash from the captured photo
    - Compares it with all hashes in the database
    - Calculates Hamming distance (number of differing bits)
-   - Finds matches within threshold (default: 15 bits difference)
-   - Returns best match if similarity > 60%
+   - Finds matches within moderate threshold (15 bits difference, ~77% similarity)
+   - Accepts matches with 70%+ similarity
+   - Returns best match if similarity is high enough (70%+)
 
-2. **OCR Fallback (Secondary)**:
+2. **Gemini AI Fallback**:
 
    - If image matching fails or finds no good match
-   - Uses Google Cloud Vision API to extract text
-   - Parses artist and album name from text
-   - Searches database/Discogs by text
+   - Uses Google Gemini Vision API to identify the album directly from the image
+   - Gemini can recognize albums even when text is unclear or the image is at an angle
+   - Searches database/Discogs with Gemini's identification
 
 3. **Scrobbling**:
    - Once album is identified, scrobbles to Last.fm
@@ -57,16 +58,21 @@ When you capture an album cover:
 
 ### Similarity Scores
 
-- **High confidence** (>80% similarity): Very likely correct match
-- **Medium confidence** (60-80%): Probably correct, but verify
-- **Low confidence** (<60%): May not be accurate
+- **High confidence** (≥85% similarity): Very likely correct match (required for auto-capture)
+- **Medium confidence** (75-85%): Probably correct, but verify
+- **Low confidence** (70-75%): May be correct, verify if unsure
+- **Rejected** (<70%): Too low confidence, will use Gemini fallback
 
 ### Hamming Distance Threshold
 
-- **0-5 bits**: Nearly identical images
-- **6-10 bits**: Very similar (same album, different photo/lighting)
-- **11-15 bits**: Similar (default threshold)
-- **16+ bits**: Different images
+The app uses **moderate thresholds** to allow more matches, since Gemini AI is available as a reliable fallback:
+
+- **0-5 bits**: Nearly identical images (≥92% similarity)
+- **6-10 bits**: Very similar (84-91% similarity)
+- **11-15 bits**: Similar (primary threshold, 77-84% similarity, minimum 70% required)
+- **16+ bits**: Different images (rejected, will use fallback methods)
+
+**Note**: The moderate threshold (15 bits, 70% similarity minimum) allows more matches while still maintaining reasonable accuracy. Auto-capture requires 85%+ similarity. If no good hash match is found, the app automatically falls back to Gemini AI recognition, which can handle more difficult cases.
 
 You can adjust the threshold in `app/api/match-image/route.ts` if needed.
 
@@ -75,7 +81,7 @@ You can adjust the threshold in `app/api/match-image/route.ts` if needed.
 ✅ **Works without text**: Recognizes albums even if text is unclear  
 ✅ **Handles variations**: Works with different lighting, angles, or image quality  
 ✅ **Fast matching**: Hash comparison is very fast  
-✅ **Offline capable**: Once database is built, works without internet (except for scrobbling)
+✅ **Offline capable**: Hash matching works offline once database is built (Gemini requires internet)
 
 ## Limitations
 

@@ -22,30 +22,31 @@ export async function POST(request: NextRequest) {
     );
 
     if (albumsWithHashes.length === 0) {
+      // Return 200 with a specific flag - this is expected, not an error
+      // The client will fall through to OCR/Gemini
       return NextResponse.json(
         {
-          error:
-            "No albums with image hashes in database. Please rebuild the database with hash generation enabled.",
+          success: false,
+          error: "No albums with image hashes in database",
+          message: "Please rebuild the database with hash generation enabled.",
+          noHashes: true,
         },
-        { status: 404 }
+        { status: 200 }
       );
     }
 
-    // Find best match with more forgiving threshold (18 bits = ~72% similarity minimum)
-    // First, try with the standard threshold
+    // Find best match with moderate threshold (15 bits = ~77% similarity)
+    // Using moderate matching - Gemini fallback is available for difficult cases
     let bestMatch = await findBestMatch(
       capturedHash,
       albumsWithHashes,
-      18 // Threshold: max Hamming distance (increased from 15 for more forgiveness)
+      15 // Threshold: max Hamming distance (moderate - allows more matches)
     );
 
-    // If no match found, try with an even more forgiving threshold (22 bits = ~66% similarity)
-    if (!bestMatch) {
-      bestMatch = await findBestMatch(
-        capturedHash,
-        albumsWithHashes,
-        22 // Very forgiving threshold for difficult cases
-      );
+    // Accept matches with moderate similarity (70%+)
+    // Lower threshold since Gemini can catch false positives
+    if (bestMatch && bestMatch.similarity < 0.7) {
+      bestMatch = null;
     }
 
     // If still no match, get all matches sorted by distance to help debug
@@ -65,8 +66,10 @@ export async function POST(request: NextRequest) {
         similarity: m.similarity,
       }));
 
+      // Return 200 with no match - this is expected, client will fall through to Gemini
       return NextResponse.json(
         {
+          success: false,
           error: "No matching album found in database",
           matches: [],
           debug: {
@@ -74,11 +77,11 @@ export async function POST(request: NextRequest) {
             totalAlbumsWithHashes: albumsWithHashes.length,
             message:
               topMatches.length > 0
-                ? `Closest match was "${topMatches[0].album}" by "${topMatches[0].artist}" with ${topMatches[0].distance} bits difference (${Math.round(topMatches[0].similarity * 100)}% similarity). This is below the threshold of 22 bits.`
+                ? `Closest match was "${topMatches[0].album}" by "${topMatches[0].artist}" with ${topMatches[0].distance} bits difference (${Math.round(topMatches[0].similarity * 100)}% similarity). This is below the threshold of 15 bits (70% similarity minimum).`
                 : "No albums found within 30 bits difference. The captured image may be very different from database images.",
           },
         },
-        { status: 404 }
+        { status: 200 }
       );
     }
 
@@ -90,14 +93,14 @@ export async function POST(request: NextRequest) {
         distance: bestMatch.distance,
         similarity: bestMatch.similarity,
         confidence:
-          bestMatch.similarity > 0.75
+          bestMatch.similarity > 0.85
             ? "high"
-            : bestMatch.similarity > 0.5
+            : bestMatch.similarity > 0.75
             ? "medium"
             : "low",
       },
       debug: {
-        thresholdUsed: bestMatch.distance <= 18 ? "standard (18)" : "forgiving (22)",
+        thresholdUsed: "moderate (15 bits, min 70% similarity)",
         distance: bestMatch.distance,
         similarityPercent: Math.round(bestMatch.similarity * 100),
       },

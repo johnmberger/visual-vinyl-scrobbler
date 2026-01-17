@@ -124,36 +124,115 @@ export async function getAllDiscogsAlbums(): Promise<DiscogsRelease[]> {
   return allAlbums;
 }
 
+// Normalize names for better matching
+function normalizeName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/^the\s+/i, "") // Remove leading "The"
+    .replace(/\s+/g, " ") // Multiple spaces to single space
+    .replace(/[^\w\s-]/g, "") // Remove special chars except hyphens and spaces
+    .trim();
+}
+
 export async function searchDiscogsAlbum(
   artist: string,
   album: string
 ): Promise<DiscogsRelease | null> {
   try {
-    const response = await axios.get(
-      "https://api.discogs.com/database/search",
-      {
-        params: {
-          q: `${artist} ${album}`,
-          type: "release",
-        },
-        headers: {
-          Authorization: `Discogs token=${config.discogs.userToken}`,
-          "User-Agent": "DiscogsScrobbler/1.0",
-        },
-      }
-    );
+    // Try multiple search strategies for better matching
+    const searchQueries = [
+      `${artist} ${album}`, // Full search
+      `"${artist}" "${album}"`, // Quoted exact phrases
+      `${album} ${artist}`, // Reversed order
+    ];
 
-    const results = response.data.results || [];
-    if (results.length > 0) {
-      // Try to find exact match in user's collection
-      const collection = await getAllDiscogsAlbums();
-      const match = collection.find(
-        (item) =>
-          item.basic_information.id === results[0].id ||
-          item.basic_information.master_id === results[0].master_id
+    const collection = await getAllDiscogsAlbums();
+    const normalizedSearchArtist = normalizeName(artist);
+    const normalizedSearchAlbum = normalizeName(album);
+
+    // First, try to find in collection directly using normalized matching
+    for (const item of collection) {
+      const normalizedItemArtist = normalizeName(
+        item.basic_information.artists[0]?.name || ""
       );
-      return match || null;
+      const normalizedItemAlbum = normalizeName(item.basic_information.title);
+
+      // Check for matches (exact or contains)
+      const artistMatches =
+        normalizedItemArtist === normalizedSearchArtist ||
+        normalizedItemArtist.includes(normalizedSearchArtist) ||
+        normalizedSearchArtist.includes(normalizedItemArtist);
+      const albumMatches =
+        normalizedItemAlbum === normalizedSearchAlbum ||
+        normalizedItemAlbum.includes(normalizedSearchAlbum) ||
+        normalizedSearchAlbum.includes(normalizedItemAlbum);
+
+      if (artistMatches && albumMatches) {
+        return item;
+      }
     }
+
+    // If not found in collection, try Discogs API search
+    for (const query of searchQueries) {
+      const response = await axios.get(
+        "https://api.discogs.com/database/search",
+        {
+          params: {
+            q: query,
+            type: "release",
+          },
+          headers: {
+            Authorization: `Discogs token=${config.discogs.userToken}`,
+            "User-Agent": "DiscogsScrobbler/1.0",
+          },
+        }
+      );
+
+      const results = response.data.results || [];
+      if (results.length > 0) {
+        // Try to find match in user's collection by ID or master_id
+        const match = collection.find(
+          (item) =>
+            item.basic_information.id === results[0].id ||
+            item.basic_information.master_id === results[0].master_id
+        );
+        if (match) {
+          return match;
+        }
+
+        // Also try normalized name matching on search results
+        for (const result of results.slice(0, 5)) {
+          // Check if this result matches our collection by normalized names
+          const collectionMatch = collection.find((item) => {
+            const normalizedItemArtist = normalizeName(
+              item.basic_information.artists[0]?.name || ""
+            );
+            const normalizedItemAlbum = normalizeName(
+              item.basic_information.title
+            );
+            const normalizedResultArtist = normalizeName(
+              result.artist || ""
+            );
+            const normalizedResultAlbum = normalizeName(result.title || "");
+
+            return (
+              (normalizedItemArtist === normalizedResultArtist ||
+                normalizedItemArtist.includes(normalizedResultArtist) ||
+                normalizedResultArtist.includes(normalizedItemArtist)) &&
+              (normalizedItemAlbum === normalizedResultAlbum ||
+                normalizedItemAlbum.includes(normalizedResultAlbum) ||
+                normalizedResultAlbum.includes(normalizedItemAlbum))
+            );
+          });
+
+          if (collectionMatch) {
+            return collectionMatch;
+          }
+        }
+      }
+    }
+
     return null;
   } catch (error) {
     console.error("Error searching Discogs:", error);

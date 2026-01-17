@@ -5,6 +5,7 @@ A Next.js app that allows you to scrobble your vinyl records to Last.fm by takin
 ## Features
 
 - 📸 **Camera-based album recognition**: Point your camera at an album cover to identify and scrobble it
+- 🤖 **Auto-capture**: Automatically captures and recognizes albums when a good match is detected
 - 🎵 **Discogs integration**: Automatically syncs with your Discogs collection
 - 🎧 **Last.fm scrobbling**: Scrobbles identified albums to your Last.fm account
 - 📚 **Library view**: Browse your entire Discogs collection and manually scrobble albums
@@ -17,7 +18,7 @@ A Next.js app that allows you to scrobble your vinyl records to Last.fm by takin
 - Node.js 18+ and npm
 - Last.fm API credentials
 - Discogs API token
-- Google Cloud Vision API credentials (for image recognition)
+- (Optional) Google Gemini API key (for AI recognition fallback)
 
 ### Installation
 
@@ -25,12 +26,6 @@ A Next.js app that allows you to scrobble your vinyl records to Last.fm by takin
 
 ```bash
 npm install
-```
-
-**Note**: If you plan to use Google Cloud Vision API, you'll also need to install the Google Cloud Vision package:
-
-```bash
-npm install @google-cloud/vision
 ```
 
 2. Set up environment variables:
@@ -54,15 +49,14 @@ npm install @google-cloud/vision
    DISCOGS_USER_TOKEN=your-discogs-token
    DISCOGS_USERNAME=your-discogs-username
 
-   # Google Cloud Vision API (optional)
-   GOOGLE_CLOUD_PROJECT_ID=your-project-id
+   # Google Gemini API (optional, for AI recognition fallback)
+   GEMINI_API_KEY=your-gemini-api-key
    ```
 
    **Important**:
 
    - `.env.local` is gitignored and won't be committed
    - Never commit your actual API keys to version control
-   - For Google Cloud Vision, also set `GOOGLE_APPLICATION_CREDENTIALS` as a system environment variable pointing to your service account JSON key file
 
 ### Getting API Keys
 
@@ -79,23 +73,33 @@ npm install @google-cloud/vision
 2. Generate a new personal access token
 3. Copy the token and your Discogs username
 
-#### Google Cloud Vision API
+#### Google Gemini API (Optional - for AI recognition fallback)
 
-1. Go to https://console.cloud.google.com
-2. Create a new project (or use existing)
-3. Enable the Cloud Vision API
-4. Create a service account:
-   - Go to IAM & Admin > Service Accounts
-   - Create a new service account
-   - Grant it the "Cloud Vision API User" role
-   - Create and download a JSON key
-5. Set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable:
+Gemini is used as a fallback when perceptual hashing finds no match. It can identify albums even when text is unclear or the image is at an angle.
 
-```bash
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/service-account-key.json"
-```
+**Step-by-step setup:**
 
-Or add it to your `.env.local` file (though the Google Cloud library reads from the environment variable).
+1. **Get your API key:**
+   - Go to https://makersuite.google.com/app/apikey (or https://aistudio.google.com/app/apikey)
+   - Sign in with your Google account
+   - Click "Create API Key" or "Get API Key"
+   - Select "Create API key in new project" (or choose an existing project)
+   - Copy the generated API key
+
+2. **Add to your environment:**
+   - Open your `.env.local` file
+   - Add the following line:
+     ```env
+     GEMINI_API_KEY=your-copied-api-key-here
+     ```
+   - Replace `your-copied-api-key-here` with the actual key you copied
+
+3. **Verify it's working:**
+   - Restart your dev server (`npm run dev:https`)
+   - Try capturing an album cover that fails with other methods
+   - If Gemini is configured, it will automatically try to identify the album
+
+**Note**: The Gemini API is free for reasonable usage, but has rate limits. For most personal use cases, the free tier should be sufficient.
 
 ### Running the App
 
@@ -123,8 +127,14 @@ See [HTTPS_SETUP.md](./HTTPS_SETUP.md) for detailed setup instructions and troub
 
 1. Tap "Start Camera" to activate your device's camera
 2. Point the camera at an album cover
-3. The app will automatically recognize the album (with auto-capture enabled) or tap "Capture Album" manually
-4. The app uses **perceptual hashing** to match the cover visually (if database has hashes), or falls back to OCR text extraction
+3. **Auto-capture** (enabled by default):
+   - The app continuously samples frames and matches them against your database
+   - When a very high-confidence match is detected (≥85% similarity), it automatically captures and processes the album
+   - Visual feedback shows a green border and "Ready!" indicator when a match is found
+   - You can disable auto-capture and manually tap "Capture Album" instead
+4. The app uses a **two-tier recognition system**:
+   - **Primary**: Perceptual hashing (visual matching) if database has hashes - uses strict thresholds (10 bits, 80% similarity minimum) to prevent false matches
+   - **Fallback**: AI recognition using Google Gemini Vision API (if hash matching fails or finds no match)
 5. Once identified, you'll see a confirmation modal where you can:
    - Select which sides of the album to scrobble
    - Adjust the scrobble timestamp
@@ -136,6 +146,7 @@ See [HTTPS_SETUP.md](./HTTPS_SETUP.md) for detailed setup instructions and troub
 - Browse all albums in your Discogs collection
 - Search by artist or album name
 - Tap any album to scrobble it manually
+- Uses the same confirmation modal as camera-based scrobbling (select sides, adjust timestamp, review tracklist)
 
 ### Database View
 
@@ -148,7 +159,7 @@ See [HTTPS_SETUP.md](./HTTPS_SETUP.md) for detailed setup instructions and troub
 - **Next.js 15**: App Router with TypeScript
 - **Perceptual Hashing**: `imghash` library (Block Mean Value algorithm)
 - **Image Processing**: `sharp` for image manipulation
-- **Google Cloud Vision API**: OCR fallback for text extraction
+- **Google Gemini API**: AI vision fallback for album recognition
 - **Discogs API**: Collection fetching, release details, and tracklists
 - **Last.fm API**: Track/album search, verification, and scrobbling
 
@@ -169,20 +180,25 @@ The app uses **perceptual hashing** (pHash) for visual album cover recognition. 
 
    - When you capture an album cover, the app generates a hash from the photo
    - Compares it with all hashes in your database using Hamming distance
-   - Finds matches within a similarity threshold (default: 15 bits difference)
-   - Returns the best match if similarity > 60%
+   - Finds matches within a moderate similarity threshold (15 bits difference, ~77% similarity)
+   - Accepts matches with 70%+ similarity
+   - Falls back to Gemini if no good match is found
 
 3. **Advantages**:
    - Works without clear text on the cover
    - Handles variations in lighting, angle, and image quality
    - Fast matching (typically <100ms for 1000 albums)
-   - Falls back to OCR if no good visual match is found
+   - Uses strict thresholds to prevent false matches
+   - Falls back to Gemini if no good visual match is found
 
 ### Similarity Scores
 
-- **High confidence** (>80%): Very likely correct match
-- **Medium confidence** (60-80%): Probably correct, verify if unsure
-- **Low confidence** (<60%): May not be accurate
+- **High confidence** (≥85%): Very likely correct match (required for auto-capture)
+- **Medium confidence** (75-85%): Probably correct, but verify
+- **Low confidence** (70-75%): May be correct, verify if unsure
+- **Rejected** (<70%): Too low confidence, will use Gemini fallback
+
+**Note**: Hash matching uses moderate thresholds (15 bits difference, 70% similarity minimum) to allow more matches. Auto-capture requires 85%+ similarity. If no good match is found, the app automatically falls back to Gemini AI recognition.
 
 For more technical details, see [IMAGE_MATCHING.md](./IMAGE_MATCHING.md).
 

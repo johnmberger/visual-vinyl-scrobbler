@@ -5,17 +5,26 @@ import { searchDatabase, getAlbumById } from "@/lib/database";
 
 export async function POST(request: NextRequest) {
   try {
-    const { text } = await request.json();
+    const { text, artist: providedArtist, album: providedAlbum } = await request.json();
 
-    if (!text) {
-      return NextResponse.json({ error: "Text is required" }, { status: 400 });
+    // Support both formats: text string (for backward compatibility) or separate artist/album
+    let artist: string | undefined;
+    let album: string | undefined;
+
+    if (providedArtist && providedAlbum) {
+      // Direct artist/album provided (preferred, from Gemini)
+      artist = providedArtist.trim();
+      album = providedAlbum.trim();
+    } else if (text) {
+      // Parse from text string (backward compatibility)
+      const parsed = parseAlbumInfo(text);
+      artist = parsed.artist;
+      album = parsed.album;
     }
-
-    const { artist, album } = parseAlbumInfo(text);
 
     if (!artist || !album) {
       return NextResponse.json(
-        { error: "Could not parse artist and album from text" },
+        { error: "Could not parse artist and album. Provide either 'text' or both 'artist' and 'album'." },
         { status: 400 }
       );
     }

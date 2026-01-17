@@ -183,6 +183,17 @@ export async function buildDatabase(
 }
 
 // Search database by artist and album name
+// Normalize names for better matching (remove articles, special chars, etc.)
+function normalizeName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/^the\s+/i, "") // Remove leading "The"
+    .replace(/\s+/g, " ") // Multiple spaces to single space
+    .replace(/[^\w\s-]/g, "") // Remove special chars except hyphens and spaces
+    .trim();
+}
+
 export function searchDatabase(artist?: string, album?: string): AlbumCover[] {
   const database = loadDatabase();
 
@@ -190,11 +201,29 @@ export function searchDatabase(artist?: string, album?: string): AlbumCover[] {
     return database.albums;
   }
 
+  const normalizedArtist = artist ? normalizeName(artist) : null;
+  const normalizedAlbum = album ? normalizeName(album) : null;
+
   return database.albums.filter((item) => {
-    const artistMatch =
-      !artist || item.artist.toLowerCase().includes(artist.toLowerCase());
-    const albumMatch =
-      !album || item.album.toLowerCase().includes(album.toLowerCase());
+    const normalizedItemArtist = normalizeName(item.artist);
+    const normalizedItemAlbum = normalizeName(item.album);
+
+    // Try exact match first
+    let artistMatch = !normalizedArtist || normalizedItemArtist === normalizedArtist;
+    let albumMatch = !normalizedAlbum || normalizedItemAlbum === normalizedAlbum;
+
+    // If exact match fails, try contains match
+    if (!artistMatch && normalizedArtist) {
+      artistMatch =
+        normalizedItemArtist.includes(normalizedArtist) ||
+        normalizedArtist.includes(normalizedItemArtist);
+    }
+    if (!albumMatch && normalizedAlbum) {
+      albumMatch =
+        normalizedItemAlbum.includes(normalizedAlbum) ||
+        normalizedAlbum.includes(normalizedItemAlbum);
+    }
+
     return artistMatch && albumMatch;
   });
 }

@@ -21,14 +21,12 @@ export const config = {
     userToken: getEnvVar("DISCOGS_USER_TOKEN"),
     username: getEnvVar("DISCOGS_USERNAME"),
   },
-  googleCloud: {
-    // For Google Cloud Vision API:
-    // 1. Create a project at https://console.cloud.google.com
-    // 2. Enable Vision API
-    // 3. Create a service account and download JSON key
-    // 4. Set GOOGLE_APPLICATION_CREDENTIALS environment variable to the JSON file path
-    //    (This should be set as a system environment variable, not in .env.local)
-    projectId: getEnvVar("GOOGLE_CLOUD_PROJECT_ID"),
+  gemini: {
+    // For Google Gemini API:
+    // 1. Go to https://makersuite.google.com/app/apikey
+    // 2. Create a new API key
+    // 3. Add it to .env.local as GEMINI_API_KEY
+    apiKey: getEnvVar("GEMINI_API_KEY"),
   },
 };
 

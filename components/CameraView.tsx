@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { extractTextFromImage, parseAlbumInfo } from "@/lib/vision";
 import CameraPreview from "./CameraPreview";
 import ScrobbleSuccessToast from "./ScrobbleSuccessToast";
 import ScrobbleConfirmationModal from "./ScrobbleConfirmationModal";
@@ -55,9 +54,18 @@ export default function CameraView() {
     trackCount?: number;
   } | null>(null);
   const [recognitionError, setRecognitionError] = useState<{
-    type: "hash" | "ocr" | "parsing" | "not_found" | "general";
+    type: "hash" | "not_found" | "general" | "gemini";
     message: string;
     capturedImage?: string;
+    debugInfo?: {
+      closestMatches?: Array<{
+        artist: string;
+        album: string;
+        distance: number;
+        similarity: number;
+      }>;
+      message?: string;
+    };
   } | null>(null);
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(true);
   const [isMatching, setIsMatching] = useState(false);
@@ -67,6 +75,8 @@ export default function CameraView() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const matchingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const matchingStartTimeRef = useRef<number | null>(null);
+  const fallbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check camera availability on mount
   useEffect(() => {
@@ -197,6 +207,12 @@ export default function CameraView() {
       clearInterval(matchingIntervalRef.current);
       matchingIntervalRef.current = null;
     }
+    // Clear fallback timeout when camera stops
+    if (fallbackTimeoutRef.current) {
+      clearTimeout(fallbackTimeoutRef.current);
+      fallbackTimeoutRef.current = null;
+    }
+    matchingStartTimeRef.current = null;
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
@@ -249,161 +265,134 @@ export default function CameraView() {
           body: JSON.stringify({ image: imageData }),
         });
 
-        if (imageMatchResponse.ok) {
-          const imageMatch = await imageMatchResponse.json();
-          // Lowered threshold from 0.6 to 0.5 (50%) for more forgiveness
-          if (imageMatch.success && imageMatch.match.similarity > 0.5) {
-            // Good match found via image matching
-            matchData = {
-              artist: imageMatch.match.album.artist,
-              albumTitle: imageMatch.match.album.album,
-              album: {
+        // Always parse response (now returns 200 even when no match)
+        const imageMatch = await imageMatchResponse.json();
+        
+        // Check if database has no hashes - this is expected, just fall through to Gemini
+        if (imageMatch.noHashes || imageMatch.error?.includes("No albums with image hashes")) {
+          // Database doesn't have hashes - this is expected, not an error
+          // Just fall through to Gemini
+          hashMatchFailed = false;
+        } else if (imageMatchResponse.ok && imageMatch.success && imageMatch.match?.similarity >= 0.7) {
+          // Good match found via image matching
+          matchData = {
+            artist: imageMatch.match.album.artist,
+            albumTitle: imageMatch.match.album.album,
+            album: {
+              id: imageMatch.match.album.discogsId,
+              basic_information: {
                 id: imageMatch.match.album.discogsId,
-                basic_information: {
-                  id: imageMatch.match.album.discogsId,
-                  master_id: imageMatch.match.album.masterId || 0,
-                  title: imageMatch.match.album.album,
-                  artists: [{ name: imageMatch.match.album.artist }],
-                  cover_image: imageMatch.match.album.coverImageUrl,
-                  thumb: imageMatch.match.album.thumbUrl,
-                  year: imageMatch.match.album.year || 0,
-                  labels: imageMatch.match.album.labels.map((name: string) => ({
-                    name,
-                    catno: "",
-                  })),
-                  formats: imageMatch.match.album.formats.map(
-                    (name: string) => ({ name, qty: "1" })
-                  ),
-                },
+                master_id: imageMatch.match.album.masterId || 0,
+                title: imageMatch.match.album.album,
+                artists: [{ name: imageMatch.match.album.artist }],
+                cover_image: imageMatch.match.album.coverImageUrl,
+                thumb: imageMatch.match.album.thumbUrl,
+                year: imageMatch.match.album.year || 0,
+                labels: imageMatch.match.album.labels.map((name: string) => ({
+                  name,
+                  catno: "",
+                })),
+                formats: imageMatch.match.album.formats.map(
+                  (name: string) => ({ name, qty: "1" })
+                ),
               },
-              matchMethod: "image",
-              confidence: imageMatch.match.confidence,
-            };
-          } else {
-            hashMatchFailed = true;
-          }
+            },
+            matchMethod: "image",
+            confidence: imageMatch.match.confidence,
+          };
+        } else if (imageMatch.error?.includes("No matching album found")) {
+          // Hash matching tried but no match found - this is expected, fall through to Gemini
+          hashMatchFailed = true;
         } else {
-          const errorData = await imageMatchResponse.json().catch(() => ({}));
-          if (errorData.error?.includes("No albums with image hashes")) {
-            // Database doesn't have hashes - this is expected, not an error
-            // Just fall through to OCR
-            hashMatchFailed = false;
-          } else if (errorData.error?.includes("No matching album found")) {
-            // Hash matching tried but no match found - this is a failure
-            hashMatchFailed = true;
-            
-            // If we have debug info, show it in the error modal
-            if (errorData.debug) {
-              // Stop camera and show error modal with debug info
-              stopCamera();
-              setIsProcessing(false);
-              setRecognitionError({
-                type: "hash",
-                message:
-                  errorData.debug.message ||
-                  "No matching album found. The closest matches are shown below.",
-                capturedImage: imageData,
-                debugInfo: {
-                  closestMatches: errorData.debug.closestMatches,
-                  message: errorData.debug.message,
-                },
-              });
-              return;
-            }
-          } else {
-            // Other error - treat as failure
-            hashMatchFailed = true;
-          }
+          // Other case - no match found, fall through to Gemini
+          hashMatchFailed = true;
         }
       } catch (err) {
         hashMatchFailed = true;
       }
 
-      // Fall back to OCR if image matching didn't work
+      // Fall back to Gemini if image matching didn't work
       if (!matchData) {
-        // Extract text using Vision API
-        let textAnnotations: any[] = [];
+        // Try Gemini as fallback
         try {
-          textAnnotations = await extractTextFromImage(imageData);
-        } catch (ocrError: any) {
-          // Stop camera and show error modal
-          stopCamera();
-          setIsProcessing(false);
-          setRecognitionError({
-            type: hashMatchFailed ? "hash" : "ocr",
-            message:
-              hashMatchFailed && ocrError
-                ? "Image matching failed and text recognition is unavailable. Please try again with better lighting or rebuild the database with image hashes."
-                : "Text recognition failed. Please check your Google Cloud Vision API configuration or try again with better lighting.",
-            capturedImage: imageData,
+          const geminiResponse = await fetch("/api/gemini/identify", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ image: imageData }),
           });
-          return;
-        }
 
-        if (textAnnotations.length === 0) {
-          // Stop camera and show error modal
+          if (geminiResponse.ok) {
+            const geminiData = await geminiResponse.json();
+            if (geminiData.success && geminiData.artist && geminiData.album) {
+              // Try to match the Gemini-identified album with Discogs
+              // Pass artist and album separately for better matching
+              const geminiMatchResponse = await fetch("/api/match-album", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  artist: geminiData.artist,
+                  album: geminiData.album,
+                }),
+              });
+
+              if (geminiMatchResponse.ok) {
+                matchData = await geminiMatchResponse.json();
+                matchData.matchMethod = "gemini";
+                matchData.geminiIdentified = {
+                  artist: geminiData.artist,
+                  album: geminiData.album,
+                };
+              } else {
+                // Gemini identified it but not in collection
+                stopCamera();
+                setIsProcessing(false);
+                setRecognitionError({
+                  type: "not_found",
+                  message: `Gemini identified this as "${geminiData.artist} - ${geminiData.album}", but it's not in your Discogs collection. Please verify the album is in your collection.`,
+                  capturedImage: imageData,
+                });
+                return;
+              }
+            } else {
+              // Gemini couldn't identify it
+              throw new Error("Gemini could not identify the album");
+            }
+          } else if (geminiResponse.status === 503) {
+            // Gemini not configured
+            const geminiErrorData = await geminiResponse.json().catch(() => ({}));
+            console.warn("Gemini not available:", geminiErrorData.error);
+            // Show error
+            stopCamera();
+            setIsProcessing(false);
+            setRecognitionError({
+              type: "gemini",
+              message:
+                "Gemini API is not configured. Please add GEMINI_API_KEY to your .env.local file. Hash matching failed and Gemini is required as a fallback.",
+              capturedImage: imageData,
+            });
+            return;
+          } else {
+            throw new Error("Gemini API failed");
+          }
+        } catch (geminiError) {
+          // Gemini fallback failed
+          console.error("Gemini fallback failed:", geminiError);
           stopCamera();
           setIsProcessing(false);
           setRecognitionError({
-            type: hashMatchFailed ? "hash" : "ocr",
+            type: "gemini",
             message:
               hashMatchFailed
-                ? "Image matching failed and no text was found in the image. Please try again with better lighting or rebuild the database with image hashes."
-                : "No text found in the image. Please ensure the album cover text is clearly visible.",
+                ? "Hash matching failed and Gemini could not identify the album. Please try again with better lighting or ensure Gemini API is configured."
+                : "Gemini could not identify the album. Please try again with better lighting or ensure the album cover is clearly visible.",
             capturedImage: imageData,
           });
           return;
         }
-
-        // Google Vision API returns full text as first element, then individual words
-        // Use the first element (full text) if available, otherwise combine all
-        const fullText =
-          textAnnotations.length > 0
-            ? textAnnotations[0].text
-            : textAnnotations.map((annotation) => annotation.text).join("\n");
-
-        // Parse album info
-        const { artist, album } = parseAlbumInfo(fullText);
-
-        if (!artist || !album) {
-          // Stop camera and show error modal
-          stopCamera();
-          setIsProcessing(false);
-          setRecognitionError({
-            type: "parsing",
-            message:
-              "Could not identify artist and album from the extracted text. Please ensure the album cover is clearly visible with readable text.",
-            capturedImage: imageData,
-          });
-          return;
-        }
-
-        // Match with Discogs collection
-        const matchResponse = await fetch("/api/match-album", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ text: fullText }),
-        });
-
-        if (!matchResponse.ok) {
-          const errorData = await matchResponse.json();
-          // Stop camera and show error modal
-          stopCamera();
-          setIsProcessing(false);
-          setRecognitionError({
-            type: "not_found",
-            message:
-              errorData.error ||
-              "Album not found in your Discogs collection. Please verify the album is in your collection.",
-            capturedImage: imageData,
-          });
-          return;
-        }
-
-        matchData = await matchResponse.json();
-        matchData.matchMethod = "ocr";
       }
 
       // Stop camera before showing confirmation
@@ -524,28 +513,83 @@ export default function CameraView() {
 
   // Continuous matching for auto-capture
   useEffect(() => {
-    // Only run if auto-capture is enabled, camera is capturing, and not already processing
+    // Only run if auto-capture is enabled, camera is capturing
+    // Don't check isProcessing here - we want the timeout to fire even if processing starts
     if (
       !autoCaptureEnabled ||
       !isCapturing ||
-      isProcessing ||
       pendingScrobble !== null ||
       !videoRef.current ||
       !canvasRef.current
     ) {
-      // Clear interval if conditions not met
+      // Clear interval and timeout if conditions not met
       if (matchingIntervalRef.current) {
         clearInterval(matchingIntervalRef.current);
         matchingIntervalRef.current = null;
       }
+      if (fallbackTimeoutRef.current) {
+        clearTimeout(fallbackTimeoutRef.current);
+        fallbackTimeoutRef.current = null;
+      }
+      matchingStartTimeRef.current = null;
       setMatchConfidence(null);
       setConsecutiveMatches(0);
       return;
     }
+    
+    // If already processing, don't start new matching but preserve the timeout
+    // The timeout should still fire to trigger Gemini fallback
+    if (isProcessing) {
+      // Don't clear timeout - let it fire to trigger Gemini
+      return;
+    }
+
+    // Start tracking matching time and set timeout if not already set
+    if (matchingStartTimeRef.current === null) {
+      matchingStartTimeRef.current = Date.now();
+      console.log("⏱️ Started matching timer - will auto-capture after 5s if no hash match");
+    }
+    
+    // Set timeout if not already set
+    if (!fallbackTimeoutRef.current) {
+      // Set timeout to automatically capture and send to Gemini after 5 seconds of no hash match
+      const timeoutId = setTimeout(() => {
+        // Check if timeout was cleared (if fallbackTimeoutRef.current !== timeoutId, it was cleared)
+        if (fallbackTimeoutRef.current !== timeoutId) {
+          console.log("⏱️ Timeout was cleared before firing");
+          return;
+        }
+        
+        // Check current state - use refs to avoid stale closure
+        // If we've been trying for 5+ seconds without a hash match, automatically capture and send to Gemini
+        if (videoRef.current && canvasRef.current) {
+          // Clear the matching interval
+          if (matchingIntervalRef.current) {
+            clearInterval(matchingIntervalRef.current);
+            matchingIntervalRef.current = null;
+          }
+          // Clear timeout ref
+          fallbackTimeoutRef.current = null;
+          // Reset matching state
+          matchingStartTimeRef.current = null;
+          setMatchConfidence(null);
+          setConsecutiveMatches(0);
+          // Automatically capture and process (will try hash first quickly, then fall back to Gemini)
+          console.log("⏱️ Timeout reached (5s) - automatically capturing and sending to Gemini");
+          captureAndProcess();
+        } else {
+          console.log("⏱️ Timeout reached but video/canvas not available");
+          fallbackTimeoutRef.current = null;
+        }
+      }, 5000); // 5 seconds timeout
+      
+      fallbackTimeoutRef.current = timeoutId;
+      console.log("⏱️ Timeout set for 5 seconds");
+    }
 
     // Sample frames every 1.5 seconds for matching
     matchingIntervalRef.current = setInterval(async () => {
-      // Skip if already matching or processing
+      // Skip if already matching or processing or if scrobble is pending
       if (isMatching || isProcessing || pendingScrobble !== null) {
         return;
       }
@@ -582,39 +626,57 @@ export default function CameraView() {
             body: JSON.stringify({ image: imageData }),
           });
 
-          if (imageMatchResponse.ok) {
-            const imageMatch = await imageMatchResponse.json();
-            // Lowered threshold from 0.6 to 0.5 (50%) for more forgiveness
-            if (imageMatch.success && imageMatch.match.similarity > 0.5) {
-              const similarity = imageMatch.match.similarity;
-              setMatchConfidence(similarity);
+          // Always parse response (now returns 200 even when no match)
+          const imageMatch = await imageMatchResponse.json();
+          
+          // Check if database has no hashes - this is expected, just continue trying
+          if (imageMatch.noHashes) {
+            console.log("📸 No hashes in database - will fall back to Gemini after timeout");
+            setMatchConfidence(null);
+            setConsecutiveMatches(0);
+            return;
+          }
+          
+          // Check if no match found - this is expected, timeout will trigger fallback
+          if (!imageMatch.success) {
+            console.log("📸 No hash match found - will fall back to Gemini after timeout");
+            setMatchConfidence(null);
+            setConsecutiveMatches(0);
+            return;
+          }
+          
+          // Check if we got a successful match
+          if (imageMatchResponse.ok && imageMatch.success && imageMatch.match?.similarity >= 0.7) {
+            const similarity = imageMatch.match.similarity;
+            setMatchConfidence(similarity);
 
-              // Lowered auto-capture threshold from 0.75 to 0.7 (70%) for more forgiveness
-              if (similarity > 0.7) {
-                const newConsecutive = consecutiveMatches + 1;
-                setConsecutiveMatches(newConsecutive);
+            // Auto-capture requires very high confidence (85%+) to prevent false captures
+            if (similarity >= 0.85) {
+              const newConsecutive = consecutiveMatches + 1;
+              setConsecutiveMatches(newConsecutive);
 
-                // Auto-capture after 2 consecutive high-confidence matches
-                if (newConsecutive >= 2) {
-                  // Clear interval before capturing
-                  if (matchingIntervalRef.current) {
-                    clearInterval(matchingIntervalRef.current);
-                    matchingIntervalRef.current = null;
-                  }
-                  // Trigger capture
-                  captureAndProcess();
-                  return;
+              // Auto-capture after 2 consecutive high-confidence matches
+              if (newConsecutive >= 2) {
+                // Clear interval and timeout before capturing
+                if (matchingIntervalRef.current) {
+                  clearInterval(matchingIntervalRef.current);
+                  matchingIntervalRef.current = null;
                 }
-              } else {
-                // Reset consecutive matches if confidence drops
-                setConsecutiveMatches(0);
+                if (fallbackTimeoutRef.current) {
+                  clearTimeout(fallbackTimeoutRef.current);
+                  fallbackTimeoutRef.current = null;
+                }
+                matchingStartTimeRef.current = null;
+                // Trigger capture
+                captureAndProcess();
+                return;
               }
             } else {
-              // No good match found
-              setMatchConfidence(null);
+              // Reset consecutive matches if confidence drops
               setConsecutiveMatches(0);
             }
           } else {
+            // No good match found - keep trying, timeout will trigger fallback
             setMatchConfidence(null);
             setConsecutiveMatches(0);
           }
@@ -636,15 +698,20 @@ export default function CameraView() {
         clearInterval(matchingIntervalRef.current);
         matchingIntervalRef.current = null;
       }
+      // Don't clear timeout here - let it fire to trigger Gemini fallback
+      // The timeout will clear itself when it fires, or when camera stops
+      // matchingStartTimeRef.current = null; // Don't reset - timeout needs to know when it started
     };
   }, [
     autoCaptureEnabled,
     isCapturing,
-    isProcessing,
     pendingScrobble,
     isMatching,
     consecutiveMatches,
     captureAndProcess,
+    // Note: isProcessing is intentionally NOT in dependencies
+    // We check it inside the effect but don't want to re-run the effect when it changes
+    // This allows the timeout to fire even when processing starts
   ]);
 
   return (

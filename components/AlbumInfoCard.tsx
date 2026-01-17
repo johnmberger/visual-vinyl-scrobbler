@@ -50,7 +50,9 @@ export default function AlbumInfoCard({
               />
             </svg>
             <span>
-              {matchMethod === "image" ? "Visual matching" : "Text recognition"}
+              {matchMethod === "image"
+                ? "Visual matching"
+                : "AI recognition (Gemini)"}
               {confidence && ` (${confidence})`}
             </span>
           </div>

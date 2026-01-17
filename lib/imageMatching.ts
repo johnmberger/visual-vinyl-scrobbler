@@ -164,7 +164,7 @@ export function calculateSimilarity(
 export async function findMatchingAlbums(
   capturedImageHash: string,
   databaseAlbums: AlbumCover[],
-  threshold: number = 18 // Maximum Hamming distance to consider a match (increased for more forgiveness)
+  threshold: number = 15 // Maximum Hamming distance to consider a match (moderate threshold)
 ): Promise<ImageMatch[]> {
   const matches: ImageMatch[] = [];
 
@@ -208,7 +208,7 @@ export async function findMatchingAlbums(
 export async function findBestMatch(
   capturedImageHash: string,
   databaseAlbums: AlbumCover[],
-  threshold: number = 18 // Increased default threshold for more forgiveness
+  threshold: number = 15 // Moderate default threshold (Gemini available as fallback for difficult cases)
 ): Promise<ImageMatch | null> {
   const matches = await findMatchingAlbums(
     capturedImageHash,

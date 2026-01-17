@@ -2,7 +2,7 @@
 
 interface RecognitionErrorModalProps {
   error: {
-    type: "hash" | "ocr" | "parsing" | "not_found" | "general";
+    type: "hash" | "not_found" | "general" | "gemini";
     message: string;
     capturedImage?: string;
     debugInfo?: {
@@ -44,10 +44,10 @@ export default function RecognitionErrorModal({
             />
           </svg>
         );
-      case "ocr":
+      case "gemini":
         return (
           <svg
-            className="w-12 h-12 text-blue-500"
+            className="w-12 h-12 text-purple-500"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -56,7 +56,7 @@ export default function RecognitionErrorModal({
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth={2}
-              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
             />
           </svg>
         );
@@ -83,10 +83,8 @@ export default function RecognitionErrorModal({
     switch (error.type) {
       case "hash":
         return "Image Matching Failed";
-      case "ocr":
-        return "Text Recognition Failed";
-      case "parsing":
-        return "Could Not Parse Album Info";
+      case "gemini":
+        return "AI Recognition Failed";
       case "not_found":
         return "Album Not Found";
       default:
@@ -104,19 +102,13 @@ export default function RecognitionErrorModal({
           "Rebuild your database with image hashes enabled",
           "Try capturing again - sometimes a second attempt works",
         ];
-      case "ocr":
+      case "gemini":
         return [
-          "Ensure text on the cover is clearly visible",
-          "Try better lighting to improve text clarity",
-          "Make sure the cover is in focus",
+          "Ensure the album cover is clearly visible",
+          "Try better lighting and focus",
+          "Make sure the cover is centered in the frame",
+          "Check that Gemini API is configured (GEMINI_API_KEY in .env.local)",
           "Check that the album is in your Discogs collection",
-          "Try scrobbling from the Library view instead",
-        ];
-      case "parsing":
-        return [
-          "Make sure artist and album name are clearly visible",
-          "Try better lighting to improve text clarity",
-          "Ensure the cover is flat and not at an angle",
           "Try scrobbling from the Library view instead",
         ];
       case "not_found":
