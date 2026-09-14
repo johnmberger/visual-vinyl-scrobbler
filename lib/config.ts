@@ -22,11 +22,16 @@ export const config = {
     username: getEnvVar("DISCOGS_USERNAME"),
   },
   gemini: {
-    // For Google Gemini API:
-    // 1. Go to https://makersuite.google.com/app/apikey
-    // 2. Create a new API key
-    // 3. Add it to .env.local as GEMINI_API_KEY
+    // https://aistudio.google.com/app/apikey
     apiKey: getEnvVar("GEMINI_API_KEY"),
+    /**
+     * Vision model for cover ID.
+     * Default: gemini-3.5-flash-lite (current Flash-Lite as of Aug 2026).
+     * Cheaper alt: gemini-3.1-flash-lite (official 2.5-flash-lite replacement).
+     * Higher accuracy: gemini-3.6-flash or gemini-3.7-flash.
+     * Note: gemini-2.5-flash-lite retires ~Oct 2026 — do not use as default.
+     */
+    visionModel: getEnvVar("GEMINI_VISION_MODEL", "gemini-3.5-flash-lite"),
   },
 };
 
@@ -51,6 +56,9 @@ export function validateConfig(): { valid: boolean; errors: string[] } {
   }
   if (!config.discogs.username || config.discogs.username === "") {
     errors.push("DISCOGS_USERNAME is required");
+  }
+  if (!config.gemini.apiKey || config.gemini.apiKey === "") {
+    errors.push("GEMINI_API_KEY is required");
   }
 
   return {

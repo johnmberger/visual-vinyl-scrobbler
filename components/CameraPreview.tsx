@@ -1,14 +1,19 @@
 "use client";
 
+import { useState, useEffect } from "react";
+
 interface CameraPreviewProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   isCapturing: boolean;
   isProcessing: boolean;
   cameraStatus: string;
-  matchConfidence?: number | null;
-  consecutiveMatches?: number;
-  isCapturingForGemini?: boolean;
+  /** Cosine similarity from embedding match (0–1), if any */
+  embeddingSimilarity?: number | null;
+  /** Consecutive stable cover frames during auto-capture */
+  stableFrameCount?: number;
+  /** True while a capture is being taken / sent for recognition */
+  isCapturingFrame?: boolean;
 }
 
 export default function CameraPreview({
@@ -17,20 +22,134 @@ export default function CameraPreview({
   isCapturing,
   isProcessing,
   cameraStatus,
-  matchConfidence,
-  consecutiveMatches = 0,
-  isCapturingForGemini = false,
+  embeddingSimilarity,
+  stableFrameCount = 0,
+  isCapturingFrame = false,
 }: CameraPreviewProps) {
+  const [videoDisplaySize, setVideoDisplaySize] = useState<{ width: number; height: number } | null>(null);
+
+  // Calculate the actual displayed video size to match crop area
+  useEffect(() => {
+    if (!isCapturing || !videoRef.current) {
+      setVideoDisplaySize(null);
+      return;
+    }
+
+    const updateVideoSize = () => {
+      const video = videoRef.current;
+      if (!video || !video.videoWidth || !video.videoHeight) return;
+
+      // Get the container dimensions
+      const container = video.parentElement;
+      if (!container) return;
+
+      const containerWidth = container.clientWidth;
+      const containerHeight = container.clientHeight;
+
+      // Calculate displayed video size with object-contain
+      // object-contain maintains aspect ratio and fits within container
+      const videoAspect = video.videoWidth / video.videoHeight;
+      const containerAspect = containerWidth / containerHeight;
+
+      let displayedWidth: number;
+      let displayedHeight: number;
+
+      if (videoAspect > containerAspect) {
+        // Video is wider - fit to width
+        displayedWidth = containerWidth;
+        displayedHeight = containerWidth / videoAspect;
+      } else {
+        // Video is taller - fit to height
+        displayedHeight = containerHeight;
+        displayedWidth = containerHeight * videoAspect;
+      }
+
+      setVideoDisplaySize({ width: displayedWidth, height: displayedHeight });
+    };
+
+    // Update on load and resize
+    updateVideoSize();
+    
+    const video = videoRef.current;
+    video.addEventListener("loadedmetadata", updateVideoSize);
+    window.addEventListener("resize", updateVideoSize);
+    
+    // Use ResizeObserver for more accurate container size tracking
+    const container = video.parentElement;
+    let resizeObserver: ResizeObserver | null = null;
+    if (container && window.ResizeObserver) {
+      resizeObserver = new ResizeObserver(updateVideoSize);
+      resizeObserver.observe(container);
+    }
+
+    return () => {
+      video.removeEventListener("loadedmetadata", updateVideoSize);
+      window.removeEventListener("resize", updateVideoSize);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [isCapturing, videoRef]);
+
   const isReadyToCapture =
-    matchConfidence !== null &&
-    (matchConfidence ?? 0) >= 0.7 && // 70%+ confidence required for auto-capture
-    consecutiveMatches >= 1;
-  
-  // Show green outline only when:
-  // 1. A match that meets the threshold is detected (>= 70%)
-  // 2. When capturing for Gemini (at the end of the timer)
-  const hasMatch = (matchConfidence ?? 0) >= 0.7;
-  const shouldShowGreen = hasMatch || isCapturingForGemini;
+    embeddingSimilarity != null &&
+    embeddingSimilarity >= 0.65 &&
+    stableFrameCount >= 1;
+
+  const hasMatch = embeddingSimilarity != null && embeddingSimilarity > 0;
+  const shouldShowGreen =
+    hasMatch || isCapturingFrame || stableFrameCount > 0;
+
+  // Calculate guide size to match crop area (75% of minimum dimension, centered)
+  // Use actual video dimensions for calculation, but position relative to displayed size
+  const getGuideStyle = () => {
+    if (!videoRef.current || !videoDisplaySize) {
+      // Fallback to container-relative sizing
+      return {
+        width: "75%",
+        height: "75%",
+        left: "12.5%",
+        top: "12.5%",
+      };
+    }
+
+    const video = videoRef.current;
+    const minDimension = Math.min(video.videoWidth, video.videoHeight);
+    const cropSize = minDimension * 0.75;
+    
+    // Calculate crop size in displayed pixels
+    const scaleX = videoDisplaySize.width / video.videoWidth;
+    const scaleY = videoDisplaySize.height / video.videoHeight;
+    const displayedCropSize = cropSize * Math.min(scaleX, scaleY);
+
+    // Center the guide
+    const left = (videoDisplaySize.width - displayedCropSize) / 2;
+    const top = (videoDisplaySize.height - displayedCropSize) / 2;
+
+    // Calculate offsets from container center
+    const container = video.parentElement;
+    if (!container) {
+      return {
+        width: "75%",
+        height: "75%",
+        left: "12.5%",
+        top: "12.5%",
+      };
+    }
+
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    const offsetX = (containerWidth - videoDisplaySize.width) / 2;
+    const offsetY = (containerHeight - videoDisplaySize.height) / 2;
+
+    return {
+      width: `${displayedCropSize}px`,
+      height: `${displayedCropSize}px`,
+      left: `${offsetX + left}px`,
+      top: `${offsetY + top}px`,
+    };
+  };
+
   return (
     <div className="relative bg-black rounded-lg overflow-hidden aspect-video mb-4 border-2 border-gray-700">
       {/* Always render video element (hidden when not capturing) so ref is available */}
@@ -42,7 +161,6 @@ export default function CameraPreview({
         className={`w-full h-full object-contain ${
           isCapturing ? "" : "hidden"
         }`}
-        style={{ transform: "scaleX(-1)" }} // Mirror the video for better UX
         onLoadedMetadata={() => {
           // Video is ready
           if (videoRef.current) {
@@ -82,7 +200,7 @@ export default function CameraPreview({
             </svg>
             <p className="text-gray-400 text-lg mb-2">Camera Preview</p>
             <p className="text-gray-500 text-sm">
-              Click "Start Camera" to begin
+              Click &quot;Start Camera&quot; to begin
             </p>
             {cameraStatus && (
               <p className="text-blue-400 text-sm mt-2">{cameraStatus}</p>
@@ -97,12 +215,14 @@ export default function CameraPreview({
           {/* Overlay guides to help center album cover */}
           <div className="absolute inset-0 pointer-events-none">
             {/* Center square guide - position album here for optimal crop */}
+            {/* Size matches the actual crop area: 75% of minimum video dimension, centered */}
             <div
-              className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[75%] aspect-square max-w-lg border-4 rounded-lg shadow-lg transition-all duration-300 ${
+              className={`absolute border-4 rounded-lg shadow-lg transition-all duration-300 ${
                 shouldShowGreen
                   ? "border-green-500 shadow-green-500/50"
                   : "border-white/70"
               }`}
+              style={getGuideStyle()}
             >
               {/* Top horizontal guide line - extends full width */}
               <div
@@ -120,12 +240,14 @@ export default function CameraPreview({
                     : "bg-white/70"
                 }`}
               />
-              {/* Match indicator - show as early as possible */}
-              {matchConfidence !== null && (
+              {/* Match indicator - show for any embedding match */}
+              {embeddingSimilarity != null && embeddingSimilarity > 0 && (
                 <div className={`absolute -top-12 left-1/2 transform -translate-x-1/2 text-white px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2 ${
                   isReadyToCapture 
                     ? "bg-green-600 animate-pulse px-4 py-2" 
-                    : "bg-green-500/80"
+                    : embeddingSimilarity >= 0.7
+                    ? "bg-green-500/80"
+                    : "bg-green-500/60"
                 }`}>
                   {isReadyToCapture && (
                     <svg
@@ -144,17 +266,16 @@ export default function CameraPreview({
                   )}
                   <span className={`font-medium ${isReadyToCapture ? "text-sm font-semibold" : "text-xs"}`}>
                     {isReadyToCapture 
-                      ? `Ready! (${Math.round((matchConfidence ?? 0) * 100)}% match)`
-                      : `${Math.round((matchConfidence ?? 0) * 100)}% match`
+                      ? `Ready! (${Math.round(embeddingSimilarity * 100)}% match)`
+                      : `${Math.round(embeddingSimilarity * 100)}% match`
                     }
                   </span>
                 </div>
               )}
-              {/* Show fallback status when capturing for Gemini */}
-              {isCapturingForGemini && matchConfidence === null && (
+              {isCapturingFrame && embeddingSimilarity == null && (
                 <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-green-500/80 text-white px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2">
                   <span className="text-xs font-medium">
-                    Sending to AI...
+                    Recognizing…
                   </span>
                 </div>
               )}

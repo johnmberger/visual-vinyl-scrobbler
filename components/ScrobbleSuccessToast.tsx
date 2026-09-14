@@ -47,7 +47,7 @@ export default function ScrobbleSuccessToast({
           </div>
           <button
             onClick={onClose}
-            className="flex-shrink-0 text-white/80 hover:text-white active:scale-90 transition-all duration-150 rounded p-0.5"
+            className="flex-shrink-0 cursor-pointer text-white/80 hover:text-white active:scale-90 transition-all duration-150 rounded p-0.5"
           >
             <svg
               className="w-5 h-5"

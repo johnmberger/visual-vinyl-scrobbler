@@ -104,49 +104,49 @@ export default function TimestampPicker({
               <button
                 type="button"
                 onClick={setToNow}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 rounded text-sm font-medium transition-all duration-150"
+                className="px-3 py-1.5 cursor-pointer bg-blue-600 hover:bg-blue-700 active:scale-95 rounded text-sm font-medium transition-all duration-150"
               >
                 Now
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(-60)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
+                className="px-3 py-1.5 cursor-pointer bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 -1h
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(-30)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
+                className="px-3 py-1.5 cursor-pointer bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 -30m
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(-15)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
+                className="px-3 py-1.5 cursor-pointer bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 -15m
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(15)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
+                className="px-3 py-1.5 cursor-pointer bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 +15m
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(30)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
+                className="px-3 py-1.5 cursor-pointer bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 +30m
               </button>
               <button
                 type="button"
                 onClick={() => adjustTime(60)}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
+                className="px-3 py-1.5 cursor-pointer bg-gray-600 hover:bg-gray-500 active:scale-95 rounded text-sm transition-all duration-150"
               >
                 +1h
               </button>
@@ -154,7 +154,7 @@ export default function TimestampPicker({
             <button
               type="button"
               onClick={() => setShowPicker(false)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-lg text-sm font-medium text-white transition-all duration-150 mt-2 shadow-lg hover:shadow-blue-500/20"
+              className="px-4 py-2 cursor-pointer bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-lg text-sm font-medium text-white transition-all duration-150 mt-2 shadow-lg hover:shadow-blue-500/20"
             >
               Done
             </button>

@@ -1,0 +1,40 @@
+# DXP4800 Pro (Intel) — LAN only. Do not port-forward these ports
+# and do not add this app to UGREEN remote access / QuickConnect.
+
+services:
+  vinyl-scrobbler:
+    build: .
+    image: visual-vinyl-scrobbler:local
+    platform: linux/amd64
+    container_name: visual-vinyl-scrobbler
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    platform: linux/amd64
+    container_name: visual-vinyl-scrobbler-https
+    restart: unless-stopped
+    depends_on:
+      - vinyl-scrobbler
+    ports:
+      # HTTPS for the iPad camera. Leave 443 for the NAS web UI.
+      - "3443:3443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certificates:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

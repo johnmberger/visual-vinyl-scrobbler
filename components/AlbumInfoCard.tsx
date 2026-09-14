@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import Image from "next/image";
+import AlbumCoverImage from "./ui/AlbumCoverImage";
 
 interface AlbumInfoCardProps {
   artist: string;
@@ -20,38 +19,21 @@ export default function AlbumInfoCard({
   matchMethod,
   confidence,
 }: AlbumInfoCardProps) {
-  const [imageLoaded, setImageLoaded] = useState(false);
-
   return (
     <div className="lg:col-span-1 space-y-4">
-      {/* Album Art */}
       {(coverImage || thumb) && (
         <div className="flex justify-center">
-          <div className="relative w-full max-w-xs aspect-square rounded-lg border-2 border-gray-600 overflow-hidden bg-gray-600">
-            {/* Skeleton loader - shows while image is loading */}
-            {!imageLoaded && (
-              <div className="absolute inset-0 bg-gray-600 animate-pulse">
-                <div className="w-full h-full bg-gradient-to-br from-gray-600 via-gray-500 to-gray-600"></div>
-              </div>
-            )}
-            <Image
-              src={(coverImage || thumb) || ""}
-              alt={`${artist} - ${albumTitle}`}
-              fill
-              sizes="(max-width: 1024px) 100vw, 320px"
-              className={`object-cover transition-opacity duration-300 ${
-                imageLoaded ? "opacity-100" : "opacity-0"
-              }`}
-              priority
-              quality={90}
-              onLoad={() => setImageLoaded(true)}
-              onError={() => setImageLoaded(true)}
-            />
-          </div>
+          <AlbumCoverImage
+            coverImage={coverImage}
+            thumb={thumb}
+            alt={`${artist} - ${albumTitle}`}
+            variant="card"
+            priority
+            sizes="(max-width: 1024px) 100vw, 320px"
+          />
         </div>
       )}
 
-      {/* Album Info */}
       <div>
         <p className="text-xl font-medium text-white mb-1">{artist}</p>
         <p className="text-gray-300 text-lg">{albumTitle}</p>
@@ -71,7 +53,7 @@ export default function AlbumInfoCard({
               />
             </svg>
             <span>
-              {matchMethod === "image"
+              {matchMethod === "embedding" || matchMethod === "image"
                 ? "Visual matching"
                 : "AI recognition (Gemini)"}
               {confidence && ` (${confidence})`}

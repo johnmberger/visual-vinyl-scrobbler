@@ -1,22 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchDiscogsAlbum } from "@/lib/discogs";
 import { parseAlbumInfo } from "@/lib/vision";
-import { searchDatabase, getAlbumById } from "@/lib/database";
+import {
+  searchDatabase,
+  getAlbumById,
+  albumCoverToDiscogsRelease,
+} from "@/lib/database";
 
 export async function POST(request: NextRequest) {
   try {
-    const { text, artist: providedArtist, album: providedAlbum } = await request.json();
+    const {
+      text,
+      artist: providedArtist,
+      album: providedAlbum,
+      discogsId,
+    } = await request.json();
 
-    // Support both formats: text string (for backward compatibility) or separate artist/album
+    if (typeof discogsId === "number") {
+      const byId = getAlbumById(discogsId);
+      if (byId) {
+        return NextResponse.json({
+          success: true,
+          album: albumCoverToDiscogsRelease(byId),
+          artist: byId.artist,
+          albumTitle: byId.album,
+          fromDatabase: true,
+          matchMethod: "discogsId",
+        });
+      }
+    }
+
     let artist: string | undefined;
     let album: string | undefined;
 
     if (providedArtist && providedAlbum) {
-      // Direct artist/album provided (preferred, from Gemini)
       artist = providedArtist.trim();
       album = providedAlbum.trim();
     } else if (text) {
-      // Parse from text string (backward compatibility)
       const parsed = parseAlbumInfo(text);
       artist = parsed.artist;
       album = parsed.album;
@@ -24,39 +44,33 @@ export async function POST(request: NextRequest) {
 
     if (!artist || !album) {
       return NextResponse.json(
-        { error: "Could not parse artist and album. Provide either 'text' or both 'artist' and 'album'." },
+        {
+          error:
+            "Could not parse artist and album. Provide either 'text' or both 'artist' and 'album'.",
+        },
         { status: 400 }
       );
     }
 
-    // Try to find in local database first (faster)
     const dbResults = searchDatabase(artist, album);
     if (dbResults.length > 0) {
-      // Return the first match from database
       const dbMatch = dbResults[0];
       return NextResponse.json({
         success: true,
-        album: {
-          id: dbMatch.discogsId,
-          basic_information: {
-            id: dbMatch.discogsId,
-            master_id: dbMatch.masterId || 0,
-            title: dbMatch.album,
-            artists: [{ name: dbMatch.artist }],
-            cover_image: dbMatch.coverImageUrl,
-            thumb: dbMatch.thumbUrl,
-            year: dbMatch.year || 0,
-            labels: dbMatch.labels.map((name) => ({ name, catno: "" })),
-            formats: dbMatch.formats.map((name) => ({ name, qty: "1" })),
-          },
-        },
+        album: albumCoverToDiscogsRelease(dbMatch),
         artist: dbMatch.artist,
         albumTitle: dbMatch.album,
         fromDatabase: true,
+        alternatives: dbResults.slice(1, 4).map((a) => ({
+          discogsId: a.discogsId,
+          artist: a.artist,
+          album: a.album,
+          coverImageUrl: a.coverImageUrl,
+          thumbUrl: a.thumbUrl,
+        })),
       });
     }
 
-    // Fall back to Discogs API search
     const discogsRelease = await searchDiscogsAlbum(artist, album);
 
     if (!discogsRelease) {

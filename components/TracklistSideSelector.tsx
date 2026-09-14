@@ -62,7 +62,7 @@ export default function TracklistSideSelector({
         {sides.map((side) => (
           <div
             key={side.side}
-            className={`bg-gray-700/50 rounded-lg p-3 border transition-all duration-200 ${
+            className={`cursor-pointer bg-gray-700/50 rounded-lg p-3 border transition-all duration-200 ${
               selectedSides.has(side.side)
                 ? "border-blue-500 shadow-md shadow-blue-500/20"
                 : "border-gray-600 hover:border-gray-500"

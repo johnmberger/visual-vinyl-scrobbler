@@ -1,0 +1,10 @@
+{
+	# LAN-only HTTPS. Do not publish 80/443 — those belong to UGOS.
+	auto_https off
+	skip_install_trust
+}
+
+https://:3443 {
+	tls /certs/server.crt /certs/server.key
+	reverse_proxy vinyl-scrobbler:3000
+}

@@ -13,6 +13,14 @@ export default function LastFmVerificationStatus({
   trackName,
   isSingleTrack,
 }: LastFmVerificationStatusProps) {
+  const detail =
+    message ||
+    (trackName
+      ? isSingleTrack
+        ? `Matched track: ${trackName}`
+        : trackName
+      : null);
+
   return (
     <div
       className={`mb-4 p-3 rounded text-sm ${
@@ -51,9 +59,12 @@ export default function LastFmVerificationStatus({
             />
           </svg>
         )}
-        <p className="font-semibold">
-          {verified ? "Verified on Last.fm" : "Not found on Last.fm"}
-        </p>
+        <div>
+          <p className="font-semibold">
+            {verified ? "Verified on Last.fm" : "Not found on Last.fm"}
+          </p>
+          {detail ? <p className="mt-0.5 text-xs opacity-90">{detail}</p> : null}
+        </div>
       </div>
     </div>
   );

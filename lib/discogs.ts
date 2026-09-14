@@ -1,5 +1,6 @@
 import axios from "axios";
 import { config } from "./config";
+import { normalizeName, rankFuzzyMatches } from "./fuzzy";
 
 export interface DiscogsTrack {
   position: string;
@@ -124,17 +125,6 @@ export async function getAllDiscogsAlbums(): Promise<DiscogsRelease[]> {
   return allAlbums;
 }
 
-// Normalize names for better matching
-function normalizeName(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/^the\s+/i, "") // Remove leading "The"
-    .replace(/\s+/g, " ") // Multiple spaces to single space
-    .replace(/[^\w\s-]/g, "") // Remove special chars except hyphens and spaces
-    .trim();
-}
-
 export async function searchDiscogsAlbum(
   artist: string,
   album: string
@@ -148,10 +138,24 @@ export async function searchDiscogsAlbum(
     ];
 
     const collection = await getAllDiscogsAlbums();
+
+    // Prefer fuzzy ranking over the local collection
+    const fuzzyHits = rankFuzzyMatches(
+      collection.filter((item) => item.basic_information),
+      artist,
+      album,
+      (item) => item.basic_information!.artists[0]?.name || "",
+      (item) => item.basic_information!.title || "",
+      { minScore: 0.6, limit: 1 }
+    );
+    if (fuzzyHits.length > 0) {
+      return fuzzyHits[0].item;
+    }
+
     const normalizedSearchArtist = normalizeName(artist);
     const normalizedSearchAlbum = normalizeName(album);
 
-    // First, try to find in collection directly using normalized matching
+    // Fallback: exact / contains match
     for (const item of collection) {
       if (!item.basic_information) continue;
       const normalizedItemArtist = normalizeName(
@@ -159,7 +163,6 @@ export async function searchDiscogsAlbum(
       );
       const normalizedItemAlbum = normalizeName(item.basic_information.title || "");
 
-      // Check for matches (exact or contains)
       const artistMatches =
         normalizedItemArtist === normalizedSearchArtist ||
         normalizedItemArtist.includes(normalizedSearchArtist) ||

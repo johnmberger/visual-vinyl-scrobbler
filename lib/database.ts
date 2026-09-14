@@ -1,8 +1,12 @@
 import fs from "fs";
 import path from "path";
 import { DiscogsRelease } from "./discogs";
-// Only import imageMatching when actually needed (lazy import)
-// This prevents WASM files from being loaded on every import
+import { rankFuzzyMatches, normalizeName } from "./fuzzy";
+import {
+  embedImageFromUrl,
+  EMBEDDING_MODEL,
+  EMBEDDING_DIMENSIONS,
+} from "./embeddings";
 
 export interface AlbumCover {
   discogsId: number;
@@ -12,32 +16,37 @@ export interface AlbumCover {
   year: number | null;
   coverImageUrl: string;
   thumbUrl: string;
-  localImagePath?: string; // If we download images locally
+  localImagePath?: string;
   labels: string[];
   formats: string[];
   lastUpdated: string;
-  // Perceptual hash for image matching
-  imageHash?: string; // Hex string of the perceptual hash
-  thumbHash?: string; // Hash of thumbnail for faster matching
+  /** Visual embedding from gemini-embedding-2 (768-d) */
+  embedding?: number[];
+  embeddingModel?: string;
+  embeddingSource?: "lastfm" | "discogs";
+  // Legacy perceptual hash fields (ignored; old DB files may still contain them)
+  imageHash?: string;
+  thumbHash?: string;
+  imageHashSource?: "lastfm" | "discogs";
 }
 
 export interface CoverDatabase {
   albums: AlbumCover[];
   lastBuilt: string;
   totalAlbums: number;
+  embeddingModel?: string;
+  embeddingDimensions?: number;
 }
 
 const DATABASE_DIR = path.join(process.cwd(), "data");
 const DATABASE_FILE = path.join(DATABASE_DIR, "covers-database.json");
 
-// Ensure data directory exists
 export function ensureDataDirectory(): void {
   if (!fs.existsSync(DATABASE_DIR)) {
     fs.mkdirSync(DATABASE_DIR, { recursive: true });
   }
 }
 
-// Load the database from disk
 export function loadDatabase(): CoverDatabase {
   ensureDataDirectory();
 
@@ -62,7 +71,6 @@ export function loadDatabase(): CoverDatabase {
   }
 }
 
-// Save the database to disk
 export function saveDatabase(database: CoverDatabase): void {
   ensureDataDirectory();
 
@@ -74,14 +82,13 @@ export function saveDatabase(database: CoverDatabase): void {
   }
 }
 
-// Convert Discogs release to AlbumCover
 export function discogsReleaseToAlbumCover(
   release: DiscogsRelease
 ): AlbumCover {
   if (!release.basic_information) {
     throw new Error("Release missing basic_information");
   }
-  
+
   const basicInfo = release.basic_information;
   return {
     discogsId: basicInfo.id,
@@ -94,68 +101,126 @@ export function discogsReleaseToAlbumCover(
     labels: (basicInfo.labels || []).map((label) => label.name),
     formats: (basicInfo.formats || []).map((format) => format.name),
     lastUpdated: new Date().toISOString(),
-    // Hashes will be generated during build process
-    imageHash: undefined,
-    thumbHash: undefined,
   };
 }
 
-// Build database from Discogs collection
-// Optionally generate image hashes for matching
+/** Minimal album fields needed to build a Discogs-shaped release for the UI/API. */
+export type AlbumCoverLike = {
+  discogsId: number;
+  masterId?: number | null;
+  artist: string;
+  album: string;
+  year?: number | null;
+  coverImageUrl?: string;
+  thumbUrl?: string;
+  labels?: string[];
+  formats?: string[];
+};
+
+/**
+ * Inverse of discogsReleaseToAlbumCover for client/API responses that expect
+ * a DiscogsRelease-like shape (scrobble confirmation, match routes).
+ */
+export function albumCoverToDiscogsRelease(album: AlbumCoverLike) {
+  return {
+    id: album.discogsId,
+    basic_information: {
+      id: album.discogsId,
+      master_id: album.masterId || 0,
+      title: album.album,
+      artists: [{ name: album.artist }],
+      cover_image: album.coverImageUrl,
+      thumb: album.thumbUrl,
+      year: album.year || 0,
+      labels: (album.labels || []).map((name) => ({ name, catno: "" })),
+      formats: (album.formats || []).map((name) => ({ name, qty: "1" })),
+    },
+  };
+}
+
+export type BuildProgress = {
+  phase: "embedding";
+  current: number;
+  total: number;
+  album?: string;
+};
+
+/**
+ * Build database from Discogs collection.
+ * When generateEmbeddings is true, embeds cover art via Gemini Embedding 2
+ * (prefers Last.fm cover URLs when available).
+ */
 export async function buildDatabase(
   releases: DiscogsRelease[],
-  generateHashes: boolean = false
+  generateEmbeddings: boolean = true,
+  onProgress?: (opts: BuildProgress) => void
 ): Promise<CoverDatabase> {
   const albums: AlbumCover[] = releases.map(discogsReleaseToAlbumCover);
 
-  // Optionally generate hashes for image matching
-  if (generateHashes) {
-    // Lazy import to avoid loading WASM files unless actually needed
-    const { generateHashFromUrl } = await import("./imageMatching");
+  if (generateEmbeddings) {
+    const { config } = await import("./config");
+    if (!config.gemini.apiKey) {
+      throw new Error(
+        "GEMINI_API_KEY is required to generate visual embeddings. Add it to .env.local or rebuild with generateEmbeddings: false."
+      );
+    }
 
-    // Generating image hashes for matching
-    // Note: Some images may fail due to Discogs rate limiting (403 errors)
-    // This is normal - the database will still be built with available hashes
+    const { getLastFmAlbumCoverUrl } = await import("./lastfm");
+
+    onProgress?.({ phase: "embedding", total: albums.length, current: 0 });
 
     for (let i = 0; i < albums.length; i++) {
       const album = albums[i];
 
-      // Add a small delay between requests to avoid rate limiting
-      if (i > 0 && i % 10 === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 2000)); // 2 second pause every 10 albums
+      // Gentle rate limiting for Last.fm + Gemini
+      if (i > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+      if (i > 0 && i % 20 === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
 
       try {
-        // Generate hash from cover image if available
-        if (album.coverImageUrl) {
+        let imageUrl: string | null = null;
+        let usedLastFm = false;
+
+        const lastFmUrl = await getLastFmAlbumCoverUrl(
+          album.artist,
+          album.album
+        );
+        if (lastFmUrl) {
+          imageUrl = lastFmUrl;
+          usedLastFm = true;
+        } else if (album.coverImageUrl) {
+          imageUrl = album.coverImageUrl;
+        } else if (album.thumbUrl) {
+          imageUrl = album.thumbUrl;
+        }
+
+        if (imageUrl) {
           try {
-            album.imageHash = await generateHashFromUrl(album.coverImageUrl);
+            album.embedding = await embedImageFromUrl(imageUrl);
+            album.embeddingModel = EMBEDDING_MODEL;
+            album.embeddingSource = usedLastFm ? "lastfm" : "discogs";
           } catch (error: any) {
-            console.warn(
-              `Failed to hash cover image for ${album.artist} - ${album.album}:`,
-              error.message || error
-            );
-            // Try thumbnail as fallback if cover fails
-            if (album.thumbUrl) {
+            if (usedLastFm && (album.coverImageUrl || album.thumbUrl)) {
+              const fallback = album.coverImageUrl || album.thumbUrl;
               try {
-                album.thumbHash = await generateHashFromUrl(album.thumbUrl);
-              } catch (thumbError: any) {
+                album.embedding = await embedImageFromUrl(fallback);
+                album.embeddingModel = EMBEDDING_MODEL;
+                album.embeddingSource = "discogs";
+              } catch (fallbackError: any) {
                 console.warn(
-                  `Thumbnail hash also failed:`,
-                  thumbError.message || thumbError
+                  `Failed to embed ${album.artist} - ${album.album}:`,
+                  fallbackError.message || fallbackError
                 );
               }
+            } else {
+              console.warn(
+                `Failed to embed ${album.artist} - ${album.album}:`,
+                error.message || error
+              );
             }
-          }
-        } else if (album.thumbUrl) {
-          // Only use thumbnail if no cover image
-          try {
-            album.thumbHash = await generateHashFromUrl(album.thumbUrl);
-          } catch (error: any) {
-            console.warn(
-              `Failed to hash thumbnail for ${album.artist} - ${album.album}:`,
-              error.message || error
-            );
           }
         }
       } catch (error) {
@@ -165,14 +230,21 @@ export async function buildDatabase(
         );
       }
 
-      // Save progress every 10 albums
+      onProgress?.({
+        phase: "embedding",
+        total: albums.length,
+        current: i + 1,
+        album: `${album.artist} - ${album.album}`,
+      });
+
       if ((i + 1) % 10 === 0) {
-        const tempDatabase: CoverDatabase = {
+        saveDatabase({
           albums,
           lastBuilt: new Date().toISOString(),
           totalAlbums: albums.length,
-        };
-        saveDatabase(tempDatabase);
+          embeddingModel: EMBEDDING_MODEL,
+          embeddingDimensions: EMBEDDING_DIMENSIONS,
+        });
       }
     }
   }
@@ -181,29 +253,36 @@ export async function buildDatabase(
     albums,
     lastBuilt: new Date().toISOString(),
     totalAlbums: albums.length,
+    embeddingModel: generateEmbeddings ? EMBEDDING_MODEL : undefined,
+    embeddingDimensions: generateEmbeddings ? EMBEDDING_DIMENSIONS : undefined,
   };
 
   saveDatabase(database);
   return database;
 }
 
-// Search database by artist and album name
-// Normalize names for better matching (remove articles, special chars, etc.)
-function normalizeName(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/^the\s+/i, "") // Remove leading "The"
-    .replace(/\s+/g, " ") // Multiple spaces to single space
-    .replace(/[^\w\s-]/g, "") // Remove special chars except hyphens and spaces
-    .trim();
-}
-
+/**
+ * Search database by artist and album (exact/contains, then fuzzy ranking).
+ */
 export function searchDatabase(artist?: string, album?: string): AlbumCover[] {
   const database = loadDatabase();
 
   if (!artist && !album) {
     return database.albums;
+  }
+
+  if (artist && album) {
+    const fuzzy = rankFuzzyMatches(
+      database.albums,
+      artist,
+      album,
+      (a) => a.artist,
+      (a) => a.album,
+      { minScore: 0.55, limit: 10 }
+    );
+    if (fuzzy.length > 0) {
+      return fuzzy.map((m) => m.item);
+    }
   }
 
   const normalizedArtist = artist ? normalizeName(artist) : null;
@@ -213,11 +292,11 @@ export function searchDatabase(artist?: string, album?: string): AlbumCover[] {
     const normalizedItemArtist = normalizeName(item.artist);
     const normalizedItemAlbum = normalizeName(item.album);
 
-    // Try exact match first
-    let artistMatch = !normalizedArtist || normalizedItemArtist === normalizedArtist;
-    let albumMatch = !normalizedAlbum || normalizedItemAlbum === normalizedAlbum;
+    let artistMatch =
+      !normalizedArtist || normalizedItemArtist === normalizedArtist;
+    let albumMatch =
+      !normalizedAlbum || normalizedItemAlbum === normalizedAlbum;
 
-    // If exact match fails, try contains match
     if (!artistMatch && normalizedArtist) {
       artistMatch =
         normalizedItemArtist.includes(normalizedArtist) ||
@@ -233,26 +312,41 @@ export function searchDatabase(artist?: string, album?: string): AlbumCover[] {
   });
 }
 
-// Get album by Discogs ID
 export function getAlbumById(discogsId: number): AlbumCover | null {
   const database = loadDatabase();
   return database.albums.find((album) => album.discogsId === discogsId) || null;
 }
 
-// Get all albums
 export function getAllAlbums(): AlbumCover[] {
   const database = loadDatabase();
   return database.albums;
 }
 
-// Get database stats
 export function getDatabaseStats() {
   const database = loadDatabase();
+  const withEmbeddings = database.albums.filter(
+    (a) => a.embedding && a.embedding.length > 0
+  ).length;
   return {
     totalAlbums: database.totalAlbums,
     lastBuilt: database.lastBuilt,
     albumsWithCovers: database.albums.filter(
       (album) => album.coverImageUrl || album.thumbUrl
     ).length,
+    albumsWithEmbeddings: withEmbeddings,
+    embeddingModel: database.embeddingModel || null,
   };
+}
+
+/** Compact collection refs for Gemini prompts (no embeddings). */
+export function getCollectionRefs(): Array<{
+  discogsId: number;
+  artist: string;
+  album: string;
+}> {
+  return getAllAlbums().map((a) => ({
+    discogsId: a.discogsId,
+    artist: a.artist,
+    album: a.album,
+  }));
 }

@@ -1,9 +1,8 @@
 import axios from "axios";
 import imghash from "imghash";
-// @ts-ignore - hamming-distance doesn't have types
 import hammingDistance from "hamming-distance";
 import sharp from "sharp";
-import { AlbumCover } from "./database";
+import { AlbumCover } from "@/lib/database";
 
 export interface ImageMatch {
   album: AlbumCover;
@@ -13,18 +12,27 @@ export interface ImageMatch {
 
 /**
  * Generate a perceptual hash from an image buffer
+ * 
+ * The imghash library (Block Mean Value algorithm) converts to grayscale internally.
+ * We no longer do explicit grayscale conversion - letting imghash handle it may:
+ * 1. Use a more optimal conversion method
+ * 2. Preserve more information before the final conversion
+ * 3. Reduce potential double-conversion issues
+ * 
+ * NOTE: This change means existing database hashes need to be rebuilt.
+ * The hash algorithm has changed, so old hashes won't match new ones.
  */
 export async function generateImageHash(
   imageBuffer: Buffer,
   bits: number = 8
 ): Promise<string> {
   try {
-    // Resize and normalize the image for consistent hashing
+    // Preprocess for consistent hashing across lighting, phones, and DB images:
+    // - Resize to 64x64; fit "cover" hashes the main content
+    // - normalize() reduces impact of lighting/phone vs DB differences
     const processed = await sharp(imageBuffer)
-      .resize(8 * bits, 8 * bits, {
-        fit: "cover",
-      })
-      .greyscale()
+      .resize(8 * bits, 8 * bits, { fit: "cover" })
+      .normalize()
       .toBuffer();
 
     const hash = await imghash.hash(processed, bits);
@@ -62,7 +70,7 @@ export async function generateHashFromUrl(
     throw new Error("Empty image URL");
   }
 
-  let lastError: any = null;
+  let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -93,16 +101,20 @@ export async function generateHashFromUrl(
 
       const imageBuffer = Buffer.from(response.data);
       return generateImageHash(imageBuffer, bits);
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
+      const status = axios.isAxiosError(error)
+        ? error.response?.status
+        : undefined;
+      const code = axios.isAxiosError(error) ? error.code : undefined;
 
       // Don't retry on certain errors
-      if (error.response?.status === 404) {
+      if (status === 404) {
         throw new Error(`Image not found (404)`);
       }
 
       // If it's a 403 and we have retries left, try again
-      if (error.response?.status === 403 && attempt < retries) {
+      if (status === 403 && attempt < retries) {
         console.warn(
           `403 error on attempt ${
             attempt + 1
@@ -112,11 +124,11 @@ export async function generateHashFromUrl(
       }
 
       // Handle specific error cases
-      if (error.response?.status === 403) {
+      if (status === 403) {
         throw new Error(
           `Access denied (403) for image URL. Discogs may be blocking requests.`
         );
-      } else if (error.code === "ECONNABORTED") {
+      } else if (code === "ECONNABORTED") {
         throw new Error(`Request timeout`);
       }
 
@@ -200,6 +212,66 @@ export async function findMatchingAlbums(
   matches.sort((a, b) => a.distance - b.distance);
 
   return matches;
+}
+
+/**
+ * Find the best matching albums from a captured image across ALL albums
+ * Returns top N matches sorted by distance (best first)
+ * This allows quality validation by comparing best vs second-best
+ */
+export async function findTopMatches(
+  capturedImageHash: string,
+  databaseAlbums: AlbumCover[],
+  topN: number = 5
+): Promise<ImageMatch[]> {
+  const allMatches: ImageMatch[] = [];
+
+  for (const album of databaseAlbums) {
+    // Try both cover image hash and thumbnail hash, use the best match
+    let albumBestDistance = Infinity;
+    
+    if (album.imageHash) {
+      const distance = calculateHammingDistance(capturedImageHash, album.imageHash);
+      if (distance < albumBestDistance) {
+        albumBestDistance = distance;
+      }
+    }
+    
+    if (album.thumbHash) {
+      const distance = calculateHammingDistance(capturedImageHash, album.thumbHash);
+      if (distance < albumBestDistance) {
+        albumBestDistance = distance;
+      }
+    }
+
+    // Add all matches (we'll sort and filter later)
+    if (albumBestDistance !== Infinity) {
+      allMatches.push({
+        album,
+        distance: albumBestDistance,
+        similarity: calculateSimilarity(albumBestDistance),
+      });
+    }
+  }
+
+  // Sort by distance (lowest = best match)
+  allMatches.sort((a, b) => a.distance - b.distance);
+
+  // Return top N matches
+  return allMatches.slice(0, topN);
+}
+
+/**
+ * Find the absolute best matching album from a captured image across ALL albums
+ * This searches all albums and returns the one with the lowest distance (highest confidence)
+ * regardless of threshold - use threshold only to determine if match should be accepted
+ */
+export async function findAbsoluteBestMatch(
+  capturedImageHash: string,
+  databaseAlbums: AlbumCover[]
+): Promise<ImageMatch | null> {
+  const topMatches = await findTopMatches(capturedImageHash, databaseAlbums, 1);
+  return topMatches.length > 0 ? topMatches[0] : null;
 }
 
 /**

@@ -1,15 +1,15 @@
 # Visual Vinyl Scrobbler
 
-A Next.js app that allows you to scrobble your vinyl records to Last.fm by taking a photo of the album cover with your device's camera (I'm using an iPad next to my turntable).
+A Next.js app that scrobbles vinyl to Last.fm by photographing album covers (e.g. an iPad next to a turntable).
 
 ## Features
 
-- 📸 **Camera-based album recognition**: Point your camera at an album cover to identify and scrobble it
-- 🤖 **Auto-capture**: Automatically captures and recognizes albums when a good match is detected
-- 🎵 **Discogs integration**: Automatically syncs with your Discogs collection
-- 🎧 **Last.fm scrobbling**: Scrobbles identified albums to your Last.fm account
-- 📚 **Library view**: Browse your entire Discogs collection and manually scrobble albums
-- 💾 **Cover database**: Build a local database of all your album covers from Discogs for faster matching
+- **Camera-based recognition**: Point at a cover to identify and scrobble it
+- **Hybrid visual matching**: Gemini Embedding 2 cosine search over your collection, with Gemini vision fallback
+- **Collection-aware AI**: Gemini is constrained to your Discogs collection when possible
+- **Discogs sync**: Local cover database built from your collection
+- **Last.fm scrobbling**: Confirm sides/timestamp, then scrobble tracks
+- **Library view**: Browse and manually scrobble any album in your collection
 
 ## Setup
 
@@ -18,220 +18,151 @@ A Next.js app that allows you to scrobble your vinyl records to Last.fm by takin
 - Node.js 18+ and npm
 - Last.fm API credentials
 - Discogs API token
-- (Optional) Google Gemini API key (for AI recognition fallback)
+- Google Gemini API key (required for recognition and embeddings)
 
 ### Installation
 
-1. Clone this repository and install dependencies:
-
 ```bash
 npm install
+cp .env.example .env.local
 ```
 
-2. Set up environment variables:
+Fill in `.env.local`:
 
-   Create a `.env.local` file in the root directory:
+```env
+LASTFM_API_KEY=...
+LASTFM_API_SECRET=...
+LASTFM_USERNAME=...
+LASTFM_PASSWORD=...
 
-   ```bash
-   cp .env.example .env.local
-   ```
+DISCOGS_USER_TOKEN=...
+DISCOGS_USERNAME=...
 
-   Then edit `.env.local` and fill in your API credentials:
-
-   ```env
-   # Last.fm API Credentials
-   LASTFM_API_KEY=your-lastfm-api-key
-   LASTFM_API_SECRET=your-lastfm-api-secret
-   LASTFM_USERNAME=your-username
-   LASTFM_PASSWORD=your-password
-
-   # Discogs API Credentials
-   DISCOGS_USER_TOKEN=your-discogs-token
-   DISCOGS_USERNAME=your-discogs-username
-
-   # Google Gemini API (optional, for AI recognition fallback)
-   GEMINI_API_KEY=your-gemini-api-key
-   ```
-
-   **Important**:
-
-   - `.env.local` is gitignored and won't be committed
-   - Never commit your actual API keys to version control
+GEMINI_API_KEY=...
+```
 
 ### Getting API Keys
 
-#### Last.fm API
+#### Last.fm
 
-1. Go to https://www.last.fm/api/account/create
-2. Create a new API account
-3. Copy your API Key and Shared Secret
-4. Use your Last.fm username and password
+1. https://www.last.fm/api/account/create
+2. Copy API Key and Shared Secret
+3. Use your Last.fm username and password (mobile session auth)
 
-#### Discogs API
+#### Discogs
 
-1. Go to https://www.discogs.com/settings/developers
-2. Generate a new personal access token
-3. Copy the token and your Discogs username
+1. https://www.discogs.com/settings/developers
+2. Create a personal access token
 
-#### Google Gemini API (Optional - for AI recognition fallback)
+#### Google Gemini (required)
 
-Gemini is used as a fallback when perceptual hashing finds no match. It can identify albums even when text is unclear or the image is at an angle.
+1. https://aistudio.google.com/app/apikey
+2. Create an API key and set `GEMINI_API_KEY`
 
-**Step-by-step setup:**
+Used for:
 
-1. **Get your API key:**
-   - Go to https://makersuite.google.com/app/apikey (or https://aistudio.google.com/app/apikey)
-   - Sign in with your Google account
-   - Click "Create API Key" or "Get API Key"
-   - Select "Create API key in new project" (or choose an existing project)
-   - Copy the generated API key
-
-2. **Add to your environment:**
-   - Open your `.env.local` file
-   - Add the following line:
-     ```env
-     GEMINI_API_KEY=your-copied-api-key-here
-     ```
-   - Replace `your-copied-api-key-here` with the actual key you copied
-
-3. **Verify it's working:**
-   - Restart your dev server (`npm run dev:https`)
-   - Try capturing an album cover that fails with other methods
-   - If Gemini is configured, it will automatically try to identify the album
-
-**Note**: The Gemini API is free for reasonable usage, but has rate limits. For most personal use cases, the free tier should be sufficient.
+- `gemini-3.5-flash-lite` — identify covers (default; override with `GEMINI_VISION_MODEL`)
+- `gemini-embedding-2` — visual embeddings for cover matching
 
 ### Running the App
 
-**Important**: The camera API requires HTTPS. Use the HTTPS dev server:
+Camera access requires HTTPS:
 
 ```bash
 npm run dev:https
 ```
 
-Then open [https://localhost:3000](https://localhost:3000) in your browser (or iPad).
+Open [https://localhost:3000](https://localhost:3000).
 
-**Note**: On first run, you may be prompted for your password to install the certificate authority. This is normal and safe for local development.
+See [HTTPS_SETUP.md](./HTTPS_SETUP.md) for certificate troubleshooting.
 
-For regular HTTP (without camera), you can still use:
+## Docker / UGREEN DXP4800 Pro (LAN + iPad)
+
+DXP4800 Pro is Intel, so the image builds as `linux/amd64` on the NAS. Nothing here is meant to be on the internet: do not port-forward 3443, and do not attach this stack to QuickConnect or UGREEN remote access.
+
+The iPad camera **requires HTTPS**. The NAS admin UI already owns 443, so Compose publishes HTTPS on **3443** via Caddy (LAN-only, local CA). The Next.js app is not exposed directly.
+
+### 1. Copy the project onto the NAS
+
+Mount the NAS in Finder (UGREEN app). Copy this repo into a folder such as `docker/visual-vinyl-scrobbler`. Skip `node_modules`, `.next`, `.git`, and `.env.local`.
+
+See [NAS.md](./NAS.md) for the Finder-first walkthrough.
+
+### 2. Create `.env`
+
+In that NAS folder, duplicate `.env.example` and rename it to `.env` (press **Cmd+Shift+.** in Finder to show dotfiles). Paste the same Last.fm, Discogs, and Gemini values you use locally.
+
+Optional: copy an existing `data/covers-database.json` into `./data/` so you do not have to rebuild embeddings on the NAS.
+
+### 3. Build and start
+
+From SSH in that folder, or UGREEN Docker → **Project**:
 
 ```bash
-npm run dev
+docker compose up -d --build
 ```
 
-See [HTTPS_SETUP.md](./HTTPS_SETUP.md) for detailed setup instructions and troubleshooting.
+### 4. Trust HTTPS on the iPad (needed for camera)
+
+iOS will not give camera access to an untrusted certificate. On your Mac (no Docker required):
+
+```bash
+./scripts/generate-lan-certs.sh 192.168.1.50
+```
+
+Use your NAS LAN IP. Copy the `certificates/` folder onto the NAS project, restart Caddy, then AirDrop `caddy-root.crt` to the iPad. Install the profile, then:
+
+**Settings → General → About → Certificate Trust Settings** → enable full trust for **Visual Vinyl Scrobbler LAN CA**.
+
+### 5. Open the app
+
+On the iPad, same Wi-Fi as the NAS:
+
+```text
+https://<nas-lan-ip>:3443
+```
+
+Safari will warn until the CA is trusted. After that, Start Camera should work. Library and Database work on that same URL.
+
+### Rebuild / logs
+
+```bash
+docker compose logs -f
+docker compose up -d --build
+```
 
 ## How It Works
 
-### Camera View
+### Recognition pipeline
 
-1. Tap "Start Camera" to activate your device's camera
-2. Point the camera at an album cover
-3. **Auto-capture** (enabled by default):
-   - The app continuously samples frames and matches them against your database
-   - When a very high-confidence match is detected (≥85% similarity), it automatically captures and processes the album
-   - Visual feedback shows a green border and "Ready!" indicator when a match is found
-   - You can disable auto-capture and manually tap "Capture Album" instead
-4. The app uses a **two-tier recognition system**:
-   - **Primary**: Perceptual hashing (visual matching) if database has hashes - uses strict thresholds (10 bits, 80% similarity minimum) to prevent false matches
-   - **Fallback**: AI recognition using Google Gemini Vision API (if hash matching fails or finds no match)
-5. Once identified, you'll see a confirmation modal where you can:
-   - Select which sides of the album to scrobble
-   - Adjust the scrobble timestamp
-   - Review tracklist information
-6. Confirm to scrobble all selected tracks to Last.fm
+1. **Capture** — Auto-capture waits until the crop region looks like a stable cover (not empty / moving); or tap Capture manually
+2. **Visual embeddings** — Query image is embedded with Gemini Embedding 2 and compared (cosine similarity) to stored collection embeddings
+3. **Auto-accept or pick** — Strong unique match → confirm scrobble; several close matches → selection UI
+4. **Gemini vision** — If visual match is weak/absent, Gemini identifies the cover, constrained to your collection list, with structured JSON output
+5. **Fuzzy name match** — Artist/album strings are matched with token/bigram similarity (handles remasters, “The”, etc.)
+6. **Scrobble** — Pick sides, adjust timestamp, scrobble to Last.fm
 
-### Library View
+### Library / Database
 
-- Browse all albums in your Discogs collection
-- Search by artist or album name
-- Tap any album to scrobble it manually
-- Uses the same confirmation modal as camera-based scrobbling (select sides, adjust timestamp, review tracklist)
+- **Library**: search and scrobble without the camera
+- **Database**: fetch Discogs collection and (recommended) generate visual embeddings for each cover (prefers Last.fm art when available)
 
-### Database View
-
-- Build a local database of all album covers from your Discogs collection
-- View statistics about your database
-- Generate perceptual hashes for visual image matching
+Rebuild the database after adding albums to Discogs.
 
 ## Technical Details
 
-- **Next.js 15**: App Router with TypeScript
-- **Perceptual Hashing**: `imghash` library (Block Mean Value algorithm)
-- **Image Processing**: `sharp` for image manipulation
-- **Google Gemini API**: AI vision fallback for album recognition
-- **Discogs API**: Collection fetching, release details, and tracklists
-- **Last.fm API**: Track/album search, verification, and scrobbling
+- Next.js 15 (App Router), React 19, TypeScript, Tailwind
+- Gemini 3.5 Flash-Lite (vision) + Gemini Embedding 2
+- Discogs collection / release / tracklist APIs
+- Last.fm search, verify, and scrobble
+- Local JSON DB: `data/covers-database.json` (gitignored)
 
-## Perceptual Hashing
-
-The app uses **perceptual hashing** (pHash) for visual album cover recognition. This allows the app to match album covers even when text is unclear or missing.
-
-### How It Works
-
-1. **Hash Generation**: When building the database with hashes enabled, the app:
-
-   - Downloads cover images from Discogs
-   - Resizes them to 8×8 pixels and converts to grayscale
-   - Generates a 64-bit hash (visual fingerprint) using the Block Mean Value algorithm
-   - Stores the hash in the database
-
-2. **Matching Process**:
-
-   - When you capture an album cover, the app generates a hash from the photo
-   - Compares it with all hashes in your database using Hamming distance
-   - Finds matches within a moderate similarity threshold (15 bits difference, ~77% similarity)
-   - Accepts matches with 70%+ similarity
-   - Falls back to Gemini if no good match is found
-
-3. **Advantages**:
-   - Works without clear text on the cover
-   - Handles variations in lighting, angle, and image quality
-   - Fast matching (typically <100ms for 1000 albums)
-   - Uses strict thresholds to prevent false matches
-   - Falls back to Gemini if no good visual match is found
-
-### Similarity Scores
-
-- **High confidence** (≥85%): Very likely correct match (required for auto-capture)
-- **Medium confidence** (75-85%): Probably correct, but verify
-- **Low confidence** (70-75%): May be correct, verify if unsure
-- **Rejected** (<70%): Too low confidence, will use Gemini fallback
-
-**Note**: Hash matching uses moderate thresholds (15 bits difference, 70% similarity minimum) to allow more matches. Auto-capture requires 85%+ similarity. If no good match is found, the app automatically falls back to Gemini AI recognition.
-
-For more technical details, see [IMAGE_MATCHING.md](./IMAGE_MATCHING.md).
-
-## Building the Database
-
-The database stores all your album covers from Discogs for faster matching:
-
-- **Location**: `data/covers-database.json` (created automatically, gitignored)
-- **Contents**: Album metadata, cover image URLs, artist names, titles, years, labels, formats, and perceptual image hashes
-- **Benefits**:
-  - Faster album lookups (searches local database first)
-  - Visual image matching using perceptual hashes
-  - Offline access to your collection metadata
-  - Reduced API calls to Discogs
-
-### To Build the Database
-
-1. Go to the "Database" tab in the app
-2. Check "Generate image hashes for visual matching" (recommended for best results)
-3. Click "Build Database from Discogs"
-4. Wait for it to fetch all albums from your collection
-   - Without hashes: a few minutes for large collections
-   - With hashes: longer as it downloads and processes cover images
-
-**Note**: Rebuild the database periodically if you add new albums to your Discogs collection.
+Legacy perceptual hashing lives in `_image-hashing/` for reference and is no longer used.
 
 ## To-Do
 
-Future improvements I'd like to implement:
-
-- **OAuth integration**: Switch from hard-coded API credentials to OAuth flows for Last.fm and Discogs, allowing users to authenticate securely without exposing API keys
-- **Hash storage optimization**: Optimize how perceptual hashes are stored and indexed for faster matching, potentially using a database or more efficient data structures
-- **Multi-user support**: Update the app architecture to support multiple users, with user-specific collections, databases, and authentication
+- **OAuth**: Replace Last.fm password / Discogs token env auth with OAuth
+- **Multi-user**: Per-user collections and credentials
 
 ## License
 

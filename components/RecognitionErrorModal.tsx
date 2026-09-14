@@ -1,23 +1,41 @@
 "use client";
 
+import Modal from "./ui/Modal";
+import AlbumCoverImage from "./ui/AlbumCoverImage";
+import { buttonClass } from "./ui/buttonClasses";
+import type { RecognitionError } from "@/lib/scrobbleTypes";
+
 interface RecognitionErrorModalProps {
-  error: {
-    type: "hash" | "not_found" | "general" | "gemini";
-    message: string;
-    capturedImage?: string;
-    debugInfo?: {
-      closestMatches?: Array<{
-        artist: string;
-        album: string;
-        distance: number;
-        similarity: number;
-      }>;
-      message?: string;
-    };
-  };
+  error: RecognitionError;
   onRetry: () => void;
   onCancel: () => void;
   onManualEntry?: () => void;
+}
+
+function suggestionsFor(type: RecognitionError["type"]): string[] {
+  switch (type) {
+    case "gemini":
+      return [
+        "Ensure the album cover is clearly visible",
+        "Try better lighting and focus",
+        "Make sure the cover is centered in the frame",
+        "Check that Gemini API is configured (GEMINI_API_KEY in .env.local)",
+        "Rebuild the database with visual embeddings enabled",
+        "Try scrobbling from the Library view instead",
+      ];
+    case "not_found":
+      return [
+        "Verify the album is in your Discogs collection",
+        "Rebuild the local database if you recently added the album",
+        "Try scrobbling from the Library view instead",
+      ];
+    default:
+      return [
+        "Try capturing again with better lighting",
+        "Ensure the cover is clearly visible and in focus",
+        "Try scrobbling from the Library view instead",
+      ];
+  }
 }
 
 export default function RecognitionErrorModal({
@@ -26,205 +44,90 @@ export default function RecognitionErrorModal({
   onCancel,
   onManualEntry,
 }: RecognitionErrorModalProps) {
-  const getErrorIcon = () => {
-    switch (error.type) {
-      case "hash":
-        return (
-          <svg
-            className="w-12 h-12 text-yellow-500"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-            />
-          </svg>
-        );
-      case "gemini":
-        return (
-          <svg
-            className="w-12 h-12 text-purple-500"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-            />
-          </svg>
-        );
-      default:
-        return (
-          <svg
-            className="w-12 h-12 text-red-500"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-        );
-    }
-  };
-
-  const getErrorTitle = () => {
-    switch (error.type) {
-      case "hash":
-        return "Image Matching Failed";
-      case "gemini":
-        return "AI Recognition Failed";
-      case "not_found":
-        return "Album Not Found";
-      default:
-        return "Recognition Failed";
-    }
-  };
-
-  const getSuggestions = () => {
-    switch (error.type) {
-      case "hash":
-        return [
-          "Make sure the album cover is centered in the frame",
-          "Try better lighting - avoid shadows and glare",
-          "Ensure the cover is flat and not at an angle",
-          "Rebuild your database with image hashes enabled",
-          "Try capturing again - sometimes a second attempt works",
-        ];
-      case "gemini":
-        return [
-          "Ensure the album cover is clearly visible",
-          "Try better lighting and focus",
-          "Make sure the cover is centered in the frame",
-          "Check that Gemini API is configured (GEMINI_API_KEY in .env.local)",
-          "Check that the album is in your Discogs collection",
-          "Try scrobbling from the Library view instead",
-        ];
-      case "not_found":
-        return [
-          "Verify the album is in your Discogs collection",
-          "Check that artist and album names match exactly",
-          "Try scrobbling from the Library view instead",
-        ];
-      default:
-        return [
-          "Try capturing again with better lighting",
-          "Ensure the cover is clearly visible and in focus",
-          "Try scrobbling from the Library view instead",
-        ];
-    }
-  };
+  const title =
+    error.type === "gemini"
+      ? "AI Recognition Failed"
+      : error.type === "not_found"
+        ? "Album Not Found"
+        : "Recognition Failed";
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-in zoom-in-95 fade-in duration-200">
-        <div className="flex items-start gap-4 mb-6">
-          <div className="flex-shrink-0">{getErrorIcon()}</div>
-          <div className="flex-1">
-            <h3 className="text-2xl font-semibold text-white mb-2">
-              {getErrorTitle()}
-            </h3>
-            <p className="text-gray-300">{error.message}</p>
-          </div>
-        </div>
-
-        {/* Captured Image Preview */}
-        {error.capturedImage && (
-          <div className="mb-6">
-            <p className="text-sm font-medium text-gray-400 mb-2">
-              Captured Image:
-            </p>
-            <div className="relative bg-gray-900 rounded-lg overflow-hidden border-2 border-gray-700">
-              <img
-                src={error.capturedImage}
-                alt="Captured album cover"
-                className="w-full max-w-xs mx-auto object-contain"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Debug Info - Show closest matches if available */}
-        {error.debugInfo?.closestMatches && error.debugInfo.closestMatches.length > 0 && (
-          <div className="mb-6 p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-            <p className="text-sm font-semibold text-gray-300 mb-2">
-              Closest Matches Found:
-            </p>
-            <p className="text-xs text-gray-400 mb-3">
-              {error.debugInfo.message}
-            </p>
-            <div className="space-y-2">
-              {error.debugInfo.closestMatches.slice(0, 3).map((match, idx) => (
-                <div
-                  key={idx}
-                  className="text-xs text-gray-400 flex items-center justify-between"
-                >
-                  <span>
-                    {match.artist} - {match.album}
-                  </span>
-                  <span className="text-gray-500">
-                    {match.distance} bits ({Math.round(match.similarity * 100)}%)
-                  </span>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-gray-500 mt-2">
-              Tip: If your album appears here, try improving lighting or rebuilding
-              the database with fresh hashes.
-            </p>
-          </div>
-        )}
-
-        {/* Suggestions */}
-        <div className="mb-6">
-          <p className="text-sm font-semibold text-gray-300 mb-3">
-            Suggestions:
-          </p>
-          <ul className="space-y-2">
-            {getSuggestions().map((suggestion, idx) => (
-              <li key={idx} className="flex items-start gap-2 text-sm text-gray-400">
-                <span className="text-blue-500 mt-1">•</span>
-                <span>{suggestion}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex gap-3">
-          <button
-            onClick={onRetry}
-            className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] rounded-lg font-semibold transition-all duration-150 shadow-lg hover:shadow-blue-500/20"
+    <Modal onClose={onCancel} maxWidthClass="max-w-2xl">
+      <div className="flex items-start gap-4 mb-6">
+        <div className="flex-shrink-0">
+          <svg
+            className={`w-12 h-12 ${
+              error.type === "gemini" ? "text-purple-500" : "text-red-500"
+            }`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
           >
-            Try Again
-          </button>
-          {onManualEntry && (
-            <button
-              onClick={onManualEntry}
-              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 active:scale-[0.98] rounded-lg font-semibold transition-all duration-150 shadow-lg hover:shadow-purple-500/20"
-            >
-              Use Library
-            </button>
-          )}
-          <button
-            onClick={onCancel}
-            className="px-6 py-3 bg-gray-600 hover:bg-gray-500 active:scale-[0.98] rounded-lg font-semibold transition-all duration-150"
-          >
-            Cancel
-          </button>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d={
+                error.type === "gemini"
+                  ? "M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                  : "M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              }
+            />
+          </svg>
+        </div>
+        <div className="flex-1">
+          <h3 className="text-2xl font-semibold text-white mb-2">{title}</h3>
+          <p className="text-gray-300">{error.message}</p>
         </div>
       </div>
-    </div>
+
+      {error.capturedImage && (
+        <div className="mb-6">
+          <p className="text-sm font-medium text-gray-400 mb-2">
+            Captured Image:
+          </p>
+          <div className="max-w-xs mx-auto rounded-lg overflow-hidden border-2 border-gray-700">
+            <AlbumCoverImage
+              coverImage={error.capturedImage}
+              alt="Captured album cover"
+              variant="fill"
+              unoptimized
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="mb-6">
+        <p className="text-sm font-semibold text-gray-300 mb-3">Suggestions:</p>
+        <ul className="space-y-2">
+          {suggestionsFor(error.type).map((suggestion) => (
+            <li
+              key={suggestion}
+              className="flex items-start gap-2 text-sm text-gray-400"
+            >
+              <span className="text-blue-500 mt-1">•</span>
+              <span>{suggestion}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          onClick={onRetry}
+          className={buttonClass("primary", { block: true })}
+        >
+          Try Again
+        </button>
+        {onManualEntry && (
+          <button onClick={onManualEntry} className={buttonClass("accent")}>
+            Use Library
+          </button>
+        )}
+        <button onClick={onCancel} className={buttonClass("secondary")}>
+          Cancel
+        </button>
+      </div>
+    </Modal>
   );
 }

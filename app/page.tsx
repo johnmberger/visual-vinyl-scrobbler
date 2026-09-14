@@ -17,19 +17,19 @@ export default function Home() {
         <div className="flex gap-4 mb-6 justify-center flex-wrap">
           <Link
             href="/"
-            className="px-6 py-3 rounded-lg font-semibold transition-colors bg-blue-600 text-white"
+            className="px-6 py-3 cursor-pointer rounded-lg font-semibold transition-colors bg-blue-600 text-white"
           >
             Camera
           </Link>
           <Link
             href="/library"
-            className="px-6 py-3 rounded-lg font-semibold transition-colors bg-gray-700 text-gray-300 hover:bg-gray-600"
+            className="px-6 py-3 cursor-pointer rounded-lg font-semibold transition-colors bg-gray-700 text-gray-300 hover:bg-gray-600"
           >
             Library
           </Link>
           <Link
             href="/database"
-            className="px-6 py-3 rounded-lg font-semibold transition-colors bg-gray-700 text-gray-300 hover:bg-gray-600"
+            className="px-6 py-3 cursor-pointer rounded-lg font-semibold transition-colors bg-gray-700 text-gray-300 hover:bg-gray-600"
           >
             Database
           </Link>

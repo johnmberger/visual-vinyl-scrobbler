@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { DatabaseStatsSkeleton } from "./SkeletonLoader";
+import StatusBanner from "./ui/StatusBanner";
+import { buttonClass } from "./ui/buttonClasses";
 
 export default function DatabaseView() {
   const [isBuilding, setIsBuilding] = useState(false);
@@ -9,9 +11,13 @@ export default function DatabaseView() {
     totalAlbums: number;
     lastBuilt: string;
     albumsWithCovers: number;
+    albumsWithEmbeddings?: number;
+    embeddingModel?: string | null;
   } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [generateEmbeddings, setGenerateEmbeddings] = useState(true);
+  const [buildLog, setBuildLog] = useState<string[]>([]);
 
   const loadStats = async () => {
     try {
@@ -25,59 +31,98 @@ export default function DatabaseView() {
     }
   };
 
-  const [generateHashes, setGenerateHashes] = useState(false);
-
   const buildDatabase = async () => {
     setIsBuilding(true);
     setError(null);
     setMessage(null);
+    setBuildLog(["Fetching Discogs collection..."]);
 
     try {
       const response = await fetch("/api/database/build", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ generateHashes }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ generateEmbeddings }),
       });
 
-      // Check if response is actually JSON
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        const text = await response.text();
-        console.error("Non-JSON response:", text.substring(0, 200));
-        throw new Error(
-          `Server returned an error. Check your Discogs API credentials in .env.local`
-        );
-      }
-
-      const data = await response.json();
+      const contentType = response.headers.get("content-type") ?? "";
 
       if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
         throw new Error(
           data.error || data.details || "Failed to build database"
         );
       }
 
+      if (contentType.includes("application/x-ndjson")) {
+        const reader = response.body?.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            const lines = buf.split("\n");
+            buf = lines.pop() ?? "";
+
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                const data = JSON.parse(line);
+                if (data.type === "phase") {
+                  setBuildLog((l) => [
+                    ...l,
+                    `Fetched ${data.total} albums.`,
+                    data.generateEmbeddings
+                      ? "Generating visual embeddings (Last.fm → Discogs covers)..."
+                      : "Building metadata database (no embeddings)...",
+                  ]);
+                } else if (data.type === "progress" && data.album) {
+                  const progressLine = `  ${data.current}/${data.total}  ${data.album}`;
+                  setBuildLog((l) =>
+                    l.length > 0 && /^\s*\d+\/\d+/.test(l[l.length - 1])
+                      ? [...l.slice(0, -1), progressLine]
+                      : [...l, progressLine]
+                  );
+                } else if (data.type === "done") {
+                  setMessage(data.message);
+                  setStats(data.stats);
+                  setBuildLog((l) => [...l, "Done."]);
+                  setIsBuilding(false);
+                } else if (data.type === "error") {
+                  setError(data.error || "Build failed");
+                  setBuildLog((l) => [
+                    ...l,
+                    `Error: ${data.error || "Build failed"}`,
+                  ]);
+                  setIsBuilding(false);
+                }
+              } catch {
+                // ignore partial JSON lines
+              }
+            }
+          }
+          setIsBuilding(false);
+        }
+        return;
+      }
+
+      const data = await response.json();
       setMessage(data.message);
       setStats(data.stats);
     } catch (err) {
       console.error("Error building database:", err);
-      let errorMessage = "Failed to build database";
-
-      if (err instanceof Error) {
-        errorMessage = err.message;
-      } else if (typeof err === "string") {
-        errorMessage = err;
-      }
-
-      setError(errorMessage);
+      setError(err instanceof Error ? err.message : String(err));
+      setBuildLog((l) => [
+        ...l,
+        `Error: ${err instanceof Error ? err.message : String(err)}`,
+      ]);
     } finally {
       setIsBuilding(false);
     }
   };
 
-  // Load stats on mount
   useEffect(() => {
     loadStats();
   }, []);
@@ -100,6 +145,17 @@ export default function DatabaseView() {
                 <span className="font-semibold">{stats.albumsWithCovers}</span>
               </p>
               <p>
+                <span className="text-gray-400">Visual Embeddings:</span>{" "}
+                <span className="font-semibold">
+                  {stats.albumsWithEmbeddings ?? 0}
+                </span>
+                {stats.embeddingModel ? (
+                  <span className="text-gray-500 text-xs ml-2">
+                    ({stats.embeddingModel})
+                  </span>
+                ) : null}
+              </p>
+              <p>
                 <span className="text-gray-400">Last Built:</span>{" "}
                 <span className="font-semibold">
                   {new Date(stats.lastBuilt).toLocaleString()}
@@ -111,53 +167,48 @@ export default function DatabaseView() {
           <DatabaseStatsSkeleton />
         )}
 
-        <div className="mb-4">
-          <label className="flex items-center gap-2 cursor-pointer">
+        <StatusBanner variant="info">
+          Recognition uses{" "}
+          <span className="font-semibold">visual embeddings</span> (Gemini
+          Embedding 2) plus collection-constrained Gemini vision. Rebuild after
+          adding albums to Discogs.
+          <label className="flex items-center gap-2 mt-3 cursor-pointer">
             <input
               type="checkbox"
-              checked={generateHashes}
-              onChange={(e) => setGenerateHashes(e.target.checked)}
-              className="w-5 h-5 rounded"
+              checked={generateEmbeddings}
+              onChange={(e) => setGenerateEmbeddings(e.target.checked)}
+              className="rounded border-gray-500"
             />
-            <span className="text-sm">
-              Generate image hashes for visual matching (slower but enables
-              image-based recognition)
-            </span>
+            Generate visual embeddings (recommended; needs GEMINI_API_KEY)
           </label>
-        </div>
+        </StatusBanner>
 
         <button
           onClick={buildDatabase}
           disabled={isBuilding}
-          className="w-full py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold text-lg transition-colors"
+          className={buttonClass("primary", { size: "lg", block: true })}
         >
-          {isBuilding
-            ? generateHashes
-              ? "Building Database & Generating Hashes..."
-              : "Building Database..."
-            : "Build Database from Discogs"}
+          {isBuilding ? "Building Database..." : "Build Database from Discogs"}
         </button>
 
+        {buildLog.length > 0 && (
+          <div className="mt-2 p-3 bg-gray-900 rounded-lg text-sm font-mono text-gray-300 max-h-48 overflow-y-auto">
+            {buildLog.map((line, i) => (
+              <div key={i} className="whitespace-pre-wrap break-all">
+                {line}
+              </div>
+            ))}
+          </div>
+        )}
+
         <p className="text-sm text-gray-400">
-          This will fetch all albums from your Discogs collection and create a
-          local database of album covers.
-          {generateHashes &&
-            " With image hashes enabled, this will also download and process cover images for visual matching - this can take significantly longer."}
-          {!generateHashes &&
-            " This can take a few minutes if you have a large collection."}
+          Fetches your Discogs collection and optionally embeds each cover for
+          visual matching. Embedding a large collection can take several
+          minutes.
         </p>
 
-        {message && (
-          <div className="p-4 bg-green-900/50 border border-green-600 rounded-lg">
-            <p className="text-green-200">{message}</p>
-          </div>
-        )}
-
-        {error && (
-          <div className="p-4 bg-red-900/50 border border-red-600 rounded-lg">
-            <p className="text-red-200">{error}</p>
-          </div>
-        )}
+        {message && <StatusBanner variant="success">{message}</StatusBanner>}
+        {error && <StatusBanner variant="error">{error}</StatusBanner>}
       </div>
     </div>
   );

@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.gitignore
+*.md
+.env
+.env.*
+!.env.example
+data
+keys
+certificates
+_image-hashing
+coverage
+.vercel
+.DS_Store
+*.pem
+npm-debug.log*
