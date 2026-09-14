@@ -103,28 +103,9 @@ next dev --experimental-https -p 3001
 
 Then access at `https://localhost:3001`
 
-### iPad/iPhone access
+### iPad / iPhone on the LAN
 
-To access from your iPad on the same network:
-
-1. Find your computer's local IP address:
-
-   - **macOS/Linux**: `ifconfig | grep "inet "`
-   - **Windows**: `ipconfig`
-
-2. Update Next.js to listen on all interfaces:
-
-   ```bash
-   next dev --experimental-https -H 0.0.0.0
-   ```
-
-3. Access from iPad:
-
-   ```
-   https://YOUR_IP_ADDRESS:3000
-   ```
-
-   **Note**: You'll need to accept the certificate warning on your iPad since it's a local certificate.
+Do not point the iPad at `npm run dev:https` or expose Next.js on `0.0.0.0:3000`. Use the LAN Docker stack in [README.md](./README.md) (`https://<host-lan-ip>:3443`). UGREEN NAS extras (how I run it) are in [nas.md](./nas.md).
 
 ### Firefox issues
 
@@ -135,30 +116,6 @@ brew install nss  # macOS
 ```
 
 Then run `mkcert -install` again.
-
-## Alternative: Using a tunneling service
-
-If you want to avoid local HTTPS setup, you can use a tunneling service:
-
-1. **ngrok** (recommended):
-
-   ```bash
-   # Install ngrok
-   brew install ngrok  # or download from ngrok.com
-
-   # Start your app normally
-   npm run dev
-
-   # In another terminal, create tunnel
-   ngrok http 3000
-   ```
-
-   ngrok will give you an HTTPS URL you can use.
-
-2. **Cloudflare Tunnel** (free):
-   ```bash
-   cloudflared tunnel --url http://localhost:3000
-   ```
 
 ## Security Note
 

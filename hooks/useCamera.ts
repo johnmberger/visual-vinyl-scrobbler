@@ -35,7 +35,7 @@ export function useCamera(): UseCameraReturn {
         window.location.hostname !== "localhost"
       ) {
         setError(
-          "Camera requires HTTPS. Please use https://localhost:3000 or see HTTPS_SETUP.md"
+          "Camera requires HTTPS. Please use https://localhost:3000 or see docs/https-setup.md"
         );
       }
     };

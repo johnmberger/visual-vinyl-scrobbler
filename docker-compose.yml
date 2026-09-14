@@ -1,5 +1,7 @@
-# DXP4800 Pro (Intel) — LAN only. Do not port-forward these ports
-# and do not add this app to UGREEN remote access / QuickConnect.
+# LAN only. Do not port-forward these ports.
+# I run this on a UGREEN DXP4800 Pro (Intel) — do not add it to
+# QuickConnect / UGREEN remote access. Drop `platform: linux/amd64`
+# if your Docker host is not amd64.
 
 services:
   vinyl-scrobbler:
@@ -27,7 +29,7 @@ services:
     depends_on:
       - vinyl-scrobbler
     ports:
-      # HTTPS for the iPad camera. Leave 443 for the NAS web UI.
+      # HTTPS for the iPad camera. 3443 avoids colliding with host 443.
       - "3443:3443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

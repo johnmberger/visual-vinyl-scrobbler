@@ -6,11 +6,13 @@ Perceptual hashing (pHash) previously used for visual matching. Replaced by **Ge
 
 Too many false positives and constant threshold tuning. Multimodal embeddings are more robust for phone/iPad photos of covers.
 
-## Contents
+## Code (still in `_image-hashing/`)
 
 - `imageMatching.ts` — pHash + Hamming distance
 - `match-image/route.ts` — old hash API
 - `MatchSelectionModal.tsx` — old candidate UI (superseded by `components/MatchSelectionModal.tsx`)
-- `IMAGE_MATCHING.md` — original docs
+
+Original write-up: [image-hashing-legacy.md](./image-hashing-legacy.md).
 
 Do not re-enable this path for production matching; use embeddings + collection-constrained Gemini instead.
+

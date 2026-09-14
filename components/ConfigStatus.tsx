@@ -50,7 +50,7 @@ export default function ConfigStatus() {
         </ul>
       )}
       <p className="text-yellow-300 text-xs mt-2">
-        See README.md or SETUP.md for instructions on setting up environment variables.
+        See the README for instructions on setting up environment variables.
       </p>
     </div>
   );

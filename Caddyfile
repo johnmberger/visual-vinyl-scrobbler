@@ -1,5 +1,5 @@
 {
-	# LAN-only HTTPS. Do not publish 80/443 — those belong to UGOS.
+	# LAN-only HTTPS on 3443 so the host can keep 80/443.
 	auto_https off
 	skip_install_trust
 }
